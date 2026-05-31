@@ -1,0 +1,69 @@
+{
+  "meta": {
+    "extractorVersion": "0.1.0",
+    "extractedAt": "2026-05-31T09:59:50.806Z",
+    "modsPath": "C:\\Users\\denez\\Documents\\Codex\\2026-05-31\\ok-sur-le-jeu-eco-je\\work\\eco-data-extractor\\fixtures",
+    "fileCount": 1,
+    "counts": {
+      "items": 1,
+      "housing": 1,
+      "recipes": 1,
+      "skills": 1
+    }
+  },
+  "items": [
+    {
+      "className": "SampleChairItem",
+      "friendlyName": "Sample Chair",
+      "description": "A small test chair.",
+      "source": "SampleChair.cs"
+    }
+  ],
+  "housing": [
+    {
+      "itemClass": "SampleChairItem",
+      "friendlyName": "Sample Chair",
+      "category": "Chair",
+      "value": 2.5,
+      "typeForRoomLimit": "Living Room",
+      "diminishingReturnPercent": 0.5,
+      "source": "SampleChair.cs"
+    }
+  ],
+  "recipes": [
+    {
+      "className": "SampleChairRecipe",
+      "name": "Sample Chair",
+      "requiredSkillClass": "CarpentrySkill",
+      "requiredSkillLevel": 1,
+      "craftingTableClass": "CarpentryTableObject",
+      "products": [
+        {
+          "itemClass": "SampleChairItem",
+          "quantity": null,
+          "raw": "new CraftingElement<SampleChairItem>()"
+        }
+      ],
+      "ingredients": [
+        {
+          "itemClass": "HewnLogItem",
+          "quantity": 4,
+          "raw": "new CraftingElement<HewnLogItem>(typeof(CarpentryEfficiencySkill), 4, CarpentryEfficiencySkill.MultiplicativeStrategy)"
+        },
+        {
+          "itemClass": "PlantFibersItem",
+          "quantity": 2,
+          "raw": "new CraftingElement<PlantFibersItem>(2)"
+        }
+      ],
+      "source": "SampleChair.cs"
+    }
+  ],
+  "skills": [
+    {
+      "className": "CarpentrySkill",
+      "friendlyName": "Carpentry",
+      "source": "SampleChair.cs"
+    }
+  ]
+}

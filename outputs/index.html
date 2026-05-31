@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Eco Housing Optimizer</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="mark">E</span>
+        <div>
+          <h1>Eco Housing</h1>
+          <p>Plan maison local</p>
+        </div>
+      </div>
+
+      <nav class="view-tabs" aria-label="Navigation">
+        <button class="view-tab active" type="button" data-view-target="house">Maison</button>
+        <button class="view-tab" type="button" data-view-target="room">Piece</button>
+        <button class="view-tab" type="button" data-view-target="objects">Objets</button>
+        <button class="view-tab" type="button" data-view-target="data">Donnees</button>
+      </nav>
+
+      <section class="side-panel" data-side-panel="house">
+        <div class="panel-title compact">
+          <h2>Materiaux</h2>
+        </div>
+        <div id="materialInputs" class="material-grid"></div>
+
+        <label class="field">
+          <span>Hauteur des pieces</span>
+          <input id="houseHeightInput" type="number" min="2" max="8" step="1" value="3">
+        </label>
+
+        <label class="field">
+          <span>Residents</span>
+          <input id="residentCountInput" type="number" min="1" max="12" step="1" value="1">
+        </label>
+      </section>
+
+      <section class="side-panel" data-side-panel="objects">
+        <label class="field">
+          <span>Recherche</span>
+          <input id="searchInput" type="search" placeholder="Lit, table, lamp...">
+        </label>
+
+        <label class="field">
+          <span>Categorie d'objet</span>
+          <select id="categorySelect">
+            <option value="all">Toutes</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Affichage</span>
+          <select id="availabilitySelect">
+            <option value="available">Craftable avec metiers debloques</option>
+            <option value="all">Tous les items housing</option>
+            <option value="locked">Items verrouilles</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="skill-panel side-panel" data-side-panel="house room objects">
+        <div class="panel-title">
+          <h2>Metiers</h2>
+          <div class="button-row">
+            <button id="selectAllSkills" type="button">Tout</button>
+            <button id="clearSkills" type="button">Reset</button>
+          </div>
+        </div>
+        <div id="skillList" class="skill-list"></div>
+      </section>
+    </aside>
+
+    <main class="app">
+      <header class="toolbar">
+        <div>
+          <p class="eyebrow">Donnees extraites du jeu</p>
+          <h2 id="viewTitle">Optimiser une maison</h2>
+        </div>
+        <div class="stats">
+          <div><strong id="housingCount">0</strong><span>housing</span></div>
+          <div><strong id="visibleCount">0</strong><span>affiches</span></div>
+          <div><strong id="skillCount">0</strong><span>metiers</span></div>
+        </div>
+      </header>
+
+      <section class="view active" data-view="house" aria-label="Optimisation de maison">
+        <div class="section-head">
+          <h3>Plan maison</h3>
+          <div class="head-actions">
+            <span id="houseHint"></span>
+            <button class="secondary-button owned-open" type="button">Objets acquis</button>
+            <button class="secondary-button authorization-open" type="button">Autorisations</button>
+          </div>
+        </div>
+        <div class="house-layout">
+          <section class="house-controls">
+            <h4>Proposition calculee</h4>
+            <div id="houseRoomCounts" class="room-counts"></div>
+          </section>
+          <section class="plan-panel">
+            <div id="housePlan" class="house-plan"></div>
+          </section>
+          <section class="shopping-panel">
+            <h4>Objets a craft</h4>
+            <div id="houseShoppingList" class="shopping-list"></div>
+          </section>
+        </div>
+        <div id="houseRoomDetails" class="room-details"></div>
+      </section>
+
+      <section class="view optimizer" data-view="room" aria-label="Optimisation de piece">
+        <div class="section-head">
+          <h3>Optimiser la piece</h3>
+          <div class="head-actions">
+            <span id="optimizerHint"></span>
+            <button class="secondary-button owned-open" type="button">Objets acquis</button>
+            <button class="secondary-button authorization-open" type="button">Autorisations</button>
+          </div>
+        </div>
+        <section class="room-setup" aria-label="Parametres de piece">
+          <div class="room-size-fields">
+            <label class="field">
+              <span>Largeur</span>
+              <input id="roomWidthInput" type="number" min="1" max="20" step="1" value="4">
+            </label>
+            <label class="field">
+              <span>Longueur</span>
+              <input id="roomDepthInput" type="number" min="1" max="20" step="1" value="4">
+            </label>
+            <label class="field">
+              <span>Hauteur</span>
+              <input id="roomHeightInput" type="number" min="2" max="8" step="1" value="3">
+            </label>
+          </div>
+
+          <div class="room-selector-block">
+            <span class="label-row compact-label">
+              Tier de la piece
+              <button id="tierHelpButton" class="help-button" type="button" aria-describedby="tierHelp">?</button>
+            </span>
+            <div id="roomTierButtons" class="tier-buttons"></div>
+            <select id="tierSelect" class="visually-hidden" aria-hidden="true"></select>
+            <span id="tierHelp" class="tooltip" role="tooltip"></span>
+          </div>
+
+          <div class="room-selector-block">
+            <span class="compact-label">Type de piece</span>
+            <div id="roomTypeBar" class="room-type-bar"></div>
+            <select id="roomSelect" class="visually-hidden" aria-hidden="true">
+              <option value="all">Choisir une piece</option>
+            </select>
+          </div>
+        </section>
+        <div id="roomTotalScore" class="room-total-score"></div>
+        <div id="roomFitSummary" class="fit-summary"></div>
+        <div id="optimizerGroups" class="optimizer-grid"></div>
+      </section>
+
+      <section class="view table-wrap" data-view="objects" aria-label="Liste des meubles">
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Categorie objet</th>
+              <th>Compatible piece</th>
+              <th>Valeur</th>
+              <th>Type limite</th>
+              <th>Retour</th>
+              <th>Sol</th>
+              <th>Volume requis</th>
+              <th>Contraintes</th>
+              <th>Metier</th>
+            </tr>
+          </thead>
+          <tbody id="itemRows"></tbody>
+        </table>
+      </section>
+
+      <section class="view" data-view="data" aria-label="Donnees extraites">
+        <div class="section-head">
+          <h3>Regles extraites</h3>
+          <span id="dataHint"></span>
+        </div>
+        <div id="dataCards" class="data-grid"></div>
+        <div id="dataLists" class="data-lists"></div>
+      </section>
+    </main>
+
+    <div id="authorizationModal" class="modal-overlay" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="authorizationTitle">
+        <header class="modal-head">
+          <div>
+            <h3 id="authorizationTitle">Autorisations d'optimisation</h3>
+            <p>Choisis ce que l'optimiseur a le droit d'utiliser.</p>
+          </div>
+          <button id="authorizationClose" class="icon-button" type="button" aria-label="Fermer">x</button>
+        </header>
+        <div class="modal-tools">
+          <input id="authorizationSearch" type="search" placeholder="Filtrer les objets...">
+          <button id="authorizationAllowAll" class="secondary-button" type="button">Tout autoriser</button>
+        </div>
+        <div class="authorization-grid">
+          <section>
+            <h4>Filtrer par categorie</h4>
+            <div id="authorizationCategories" class="category-filter-list"></div>
+          </section>
+          <section>
+            <h4>Objets</h4>
+            <div id="authorizationItems" class="check-list item-check-list"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div id="ownedModal" class="modal-overlay" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="ownedTitle">
+        <header class="modal-head">
+          <div>
+            <h3 id="ownedTitle">Objets deja acquis</h3>
+            <p>Indique les quantites que tu possedes deja pour calculer le reste a craft.</p>
+          </div>
+          <button id="ownedClose" class="icon-button" type="button" aria-label="Fermer">x</button>
+        </header>
+        <div class="modal-tools">
+          <input id="ownedSearch" type="search" placeholder="Filtrer les objets...">
+          <button id="ownedClear" class="secondary-button" type="button">Vider</button>
+        </div>
+        <div class="authorization-grid">
+          <section>
+            <h4>Filtrer par categorie</h4>
+            <div id="ownedCategories" class="category-filter-list"></div>
+          </section>
+          <section>
+            <h4>Quantites</h4>
+            <div id="ownedItems" class="check-list item-check-list"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

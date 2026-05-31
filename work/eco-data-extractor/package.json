@@ -1,0 +1,14 @@
+{
+  "name": "eco-data-extractor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "extract": "node src/extract-eco-data.mjs",
+    "start-app": "node ../../work/serve-outputs.mjs",
+    "test": "node test/run-fixture-test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
