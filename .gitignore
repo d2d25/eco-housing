@@ -3,3 +3,6 @@ node_modules/
 Thumbs.db
 *.log
 *.tmp
+*.tsbuildinfo
+work/eco-housing-app/vite.config.js
+work/eco-housing-app/vite.config.d.ts
