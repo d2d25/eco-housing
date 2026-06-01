@@ -229,6 +229,7 @@ function buildModel(data) {
 
     return {
       ...housing,
+      tags: [...new Set([...(housing.tags ?? []), ...(requirementsByWorldObject.get(housing.worldObjectClass)?.tags ?? [])])],
       recipes,
       skills,
       skillClasses,
@@ -468,24 +469,121 @@ function formatRequirement(requirement) {
   return `${skill?.friendlyName ?? requirement.skillClass}${requirement.level ? ` ${requirement.level}` : ""}`;
 }
 
+function hasSurfaceTag(item, tagName) {
+  return item.tags?.includes(`SurfaceTags.${tagName}`);
+}
+
+function hasTag(item, tagName) {
+  return item.tags?.includes(tagName);
+}
+
+function isSmallEstimatedPlaceable(item) {
+  return hasSurfaceTag(item, "CanBeOnSurface") || (!item.worldObjectClass && hasTag(item, "Petals"));
+}
+
+function surfacePlacementKind(item) {
+  if (hasSurfaceTag(item, "Rug")) return "superposable: tapis";
+  if (!item.worldObjectClass && hasTag(item, "Petals")) return "petit objet posable estime";
+  if (hasSurfaceTag(item, "CanBeOnSurface")) return "posable sur surface";
+  if (hasSurfaceTag(item, "HasTableSurface")) return "fournit surface";
+  return "";
+}
+
+function surfaceUnitsProvided(item) {
+  if (!hasSurfaceTag(item, "HasTableSurface")) return 0;
+  return Math.max(1, item.occupancy?.floorArea ?? 1);
+}
+
+function surfaceUnitsRequired(item) {
+  if (!isSmallEstimatedPlaceable(item)) return 0;
+  return Math.max(1, itemFootprint(item).floorArea);
+}
+
+function itemFootprint(item) {
+  if (item.occupancy) {
+    return {
+      width: item.occupancy.width ?? 0,
+      depth: item.occupancy.depth ?? 0,
+      height: item.occupancy.height ?? 0,
+      floorArea: item.occupancy.floorArea ?? 0,
+      estimated: false,
+    };
+  }
+
+  if (isSmallEstimatedPlaceable(item)) {
+    return { width: 1, depth: 1, height: 1, floorArea: 1, estimated: true };
+  }
+
+  return { width: 0, depth: 0, height: 0, floorArea: 0, estimated: false };
+}
+
+function effectiveFloorArea(item) {
+  if (hasSurfaceTag(item, "Rug")) return 0;
+  return itemFootprint(item).floorArea;
+}
+
+function floorAreaWhenOnSurface(item) {
+  if (hasSurfaceTag(item, "Rug")) return 0;
+  if (isSmallEstimatedPlaceable(item)) return 0;
+  return effectiveFloorArea(item);
+}
+
+function itemOccupancyDimensions(item) {
+  const footprint = itemFootprint(item);
+  return {
+    width: footprint.width,
+    depth: footprint.depth,
+    height: footprint.height,
+  };
+}
+
+function itemFitsRoomDimensions(item, constraints = null) {
+  if (!constraints) return true;
+  const { width, depth, height } = itemOccupancyDimensions(item);
+
+  if (constraints.maxHeight != null && height > 0 && height > constraints.maxHeight) return false;
+
+  if (constraints.maxWidth != null && constraints.maxDepth != null && width > 0 && depth > 0) {
+    const fitsDefault = width <= constraints.maxWidth && depth <= constraints.maxDepth;
+    const fitsRotated = depth <= constraints.maxWidth && width <= constraints.maxDepth;
+    if (!fitsDefault && !fitsRotated) return false;
+  }
+
+  return true;
+}
+
 function formatFootprint(item) {
-  const occupancy = item.occupancy;
-  if (!occupancy) return "<span class='muted'>-</span>";
-  return `${occupancy.width}x${occupancy.depth} (${occupancy.floorArea})`;
+  const occupancy = itemFootprint(item);
+  if (!occupancy.floorArea) return "<span class='muted'>-</span>";
+  const blocking = effectiveFloorArea(item);
+  const suffix = blocking !== occupancy.floorArea ? `, bloque ${blocking}` : "";
+  const height = occupancy.height > 1 ? `x${occupancy.height}` : "";
+  const estimated = occupancy.estimated ? ", estime" : "";
+  return `${occupancy.width}x${occupancy.depth}${height} (${occupancy.floorArea}${suffix}${estimated})`;
 }
 
 function formatRequiredVolume(item) {
   const volume = item.requirements?.requiredRoomVolume;
   if (volume == null) return "<span class='muted'>-</span>";
-  return String(volume);
+  return `${volume} m3`;
 }
 
 function formatObjectConstraints(item) {
   const requirements = item.requirements;
   const occupancy = item.occupancy;
   const parts = [];
+  const surface = surfacePlacementKind(item);
+  if (surface) parts.push(surface);
+  const surfaceProvided = surfaceUnitsProvided(item);
+  const surfaceRequired = surfaceUnitsRequired(item);
+  if (surfaceProvided) parts.push(`surface +${surfaceProvided}`);
+  if (surfaceRequired) parts.push(`surface -${surfaceRequired}`);
+  if (itemFootprint(item).estimated) parts.push("empreinte estimee");
   if (requirements?.requireRoomContainment) parts.push("piece fermee");
   if (requirements?.requiredRoomMaterialTier != null) parts.push(`tier ${requirements.requiredRoomMaterialTier}`);
+  if (requirements?.attachmentDirections?.length) parts.push(`attache: ${requirements.attachmentDirections.join(", ")}`);
+  if (item.hasDynamicFurnishingValue) parts.push("valeur dynamique");
+  if (item.diminishingMultiplierAcrossFullProperty != null) parts.push(`retour propriete ${Math.round(item.diminishingMultiplierAcrossFullProperty * 100)}%`);
   if (occupancy?.ports?.length) parts.push(`ports: ${occupancy.ports.join(", ")}`);
   if (!parts.length) return "<span class='muted'>-</span>";
   return parts.join(" | ");
@@ -814,6 +912,12 @@ function formatRoomHint() {
 function optimizerGroups(roomName = state.room, constraints = null, tierValue = state.roomTier) {
   const compatible = compatibleCategoriesForRoom(roomName);
   if (!compatible) return [];
+  if (constraints) {
+    constraints.usedFloor = 0;
+    constraints.usedRequiredVolume = 0;
+    constraints.surfaceCapacity = 0;
+    constraints.usedSurface = 0;
+  }
   const room = selectedRoom(roomName);
   const primary = room ? [room.name] : [];
   const supports = room?.supportingRoomCategoryNames ?? [];
@@ -821,10 +925,10 @@ function optimizerGroups(roomName = state.room, constraints = null, tierValue = 
   const ordered = [...new Set([...primary, ...supports, ...general])].filter((category) => compatible.has(category));
   let primaryScore = 0;
 
-  return ordered.map((category) => {
+  const groups = ordered.map((category) => {
     const isPrimary = category === roomName;
     const role = isPrimary ? "definit la piece" : general.includes(category) ? "support general" : "support";
-    const supportCapPercent = isPrimary ? null : supportCapPercentForCategory(category);
+    const supportCapPercent = isPrimary ? null : supportCapPercentForCategory(category, roomName);
     const supportCap = supportCapPercent == null ? null : primaryScore * supportCapPercent;
     const items = state.data.housingItems
       .filter((item) => item.category === category)
@@ -843,11 +947,16 @@ function optimizerGroups(roomName = state.room, constraints = null, tierValue = 
       supportCapPercent,
     };
   });
+  reconcileSurfacePlacement(groups, constraints);
+  return groups.map((group) => ({
+    ...group,
+    score: estimateEntriesScore(group.entries),
+  }));
 }
 
-function supportCapPercentForCategory(category) {
+function supportCapPercentForCategory(category, primaryRoomName = state.room) {
   const roomCategory = state.data.roomCategoryByName.get(category);
-  return roomCategory?.maxSupportPercentOfPrimary ?? null;
+  return roomCategory?.maxSupportPercentOfPrimaryPerCategory?.[primaryRoomName] ?? roomCategory?.maxSupportPercentOfPrimary ?? null;
 }
 
 function selectedTier(tierValue = state.roomTier) {
@@ -878,13 +987,74 @@ function estimateEntriesScore(entries) {
   return entries.reduce((total, entry) => total + entry.score, 0);
 }
 
+function surfaceSummary(entries) {
+  return entries.reduce((summary, entry) => ({
+    capacity: summary.capacity + surfaceUnitsProvided(entry.item),
+    used: summary.used + surfaceUnitsRequired(entry.item),
+  }), { capacity: 0, used: 0 });
+}
+
+function reconcileSurfacePlacement(groups, constraints = null) {
+  const entries = groups.flatMap((group) => group.entries.map((entry) => ({ group, entry })));
+  let { capacity, used } = surfaceSummary(entries.map(({ entry }) => entry));
+  if (used <= capacity) return;
+
+  const consumers = entries
+    .filter(({ entry }) => surfaceUnitsRequired(entry.item) > 0)
+    .sort((a, b) => {
+      if (Boolean(a.entry.fromOwned) !== Boolean(b.entry.fromOwned)) return a.entry.fromOwned ? 1 : -1;
+      return a.entry.score - b.entry.score || byName(a.entry.item, b.entry.item);
+    });
+
+  for (const candidate of consumers) {
+    if (used <= capacity) break;
+    const required = surfaceUnitsRequired(candidate.entry.item);
+    const extraFloor = effectiveFloorArea(candidate.entry.item) - floorAreaWhenOnSurface(candidate.entry.item);
+    if (
+      constraints?.maxFloor != null &&
+      ((constraints.usedFloor ?? 0) + extraFloor) > constraints.maxFloor
+    ) {
+      const index = candidate.group.entries.indexOf(candidate.entry);
+      if (index === -1) continue;
+      candidate.group.entries.splice(index, 1);
+      refundEntryUsage(candidate.entry, constraints);
+    } else {
+      candidate.entry.placedOnFloor = true;
+      candidate.entry.extraFloorFromSurfaceOverflow = extraFloor;
+      if (constraints) constraints.usedFloor = (constraints.usedFloor ?? 0) + extraFloor;
+    }
+    used -= required;
+  }
+}
+
+function refundEntryUsage(entry, constraints = null) {
+  if (!constraints) return;
+  constraints.usedFloor = Math.max(0, (constraints.usedFloor ?? 0) - floorAreaWhenOnSurface(entry.item) - (entry.extraFloorFromSurfaceOverflow ?? 0));
+  constraints.usedRequiredVolume = Math.max(0, (constraints.usedRequiredVolume ?? 0) - (entry.item.requirements?.requiredRoomVolume ?? 0));
+  constraints.surfaceCapacity = Math.max(0, (constraints.surfaceCapacity ?? 0) - surfaceUnitsProvided(entry.item));
+  constraints.usedSurface = Math.max(0, (constraints.usedSurface ?? 0) - surfaceUnitsRequired(entry.item));
+
+  if (entry.fromOwned && constraints.ownedUsage?.has(entry.item.itemClass)) {
+    const next = Math.max(0, (constraints.ownedUsage.get(entry.item.itemClass) ?? 0) - entry.fromOwned);
+    if (next > 0) constraints.ownedUsage.set(entry.item.itemClass, next);
+    else constraints.ownedUsage.delete(entry.item.itemClass);
+  }
+
+  if (entry.item.diminishingMultiplierAcrossFullProperty != null && constraints.propertyTypeCounts?.has(entry.type)) {
+    const next = Math.max(0, (constraints.propertyTypeCounts.get(entry.type) ?? 0) - 1);
+    if (next > 0) constraints.propertyTypeCounts.set(entry.type, next);
+    else constraints.propertyTypeCounts.delete(entry.type);
+  }
+}
+
 function applyTierCap(value, tierValue = state.roomTier) {
   const tier = selectedTier(tierValue);
   if (!tier) return value;
   if (value <= tier.softCap) return value;
   const overflow = value - tier.softCap;
-  const cappedOverflow = Math.min(overflow, tier.hardCap - tier.softCap);
-  return tier.softCap + cappedOverflow * tier.diminishingReturnPercent;
+  const range = tier.hardCap - tier.softCap;
+  if (range <= 0) return tier.hardCap;
+  return tier.hardCap - range * (tier.diminishingReturnPercent ** (overflow / range));
 }
 
 function tierCapLoss(raw, capped) {
@@ -893,18 +1063,24 @@ function tierCapLoss(raw, capped) {
 
 function scoreSummary(groups, tierValue = state.roomTier) {
   const allEntries = groups.flatMap((group) => group.entries);
-  const raw = estimateEntriesScore(allEntries);
-  const capped = applyTierCap(raw, tierValue);
+  const raw = allEntries.reduce((total, entry) => total + (entry.baseScore ?? entry.item.value ?? 0), 0);
+  const afterDiminishing = allEntries.reduce((total, entry) => total + (entry.rawScore ?? entry.score), 0);
+  const afterSupportCaps = estimateEntriesScore(allEntries);
+  const capped = applyTierCap(afterSupportCaps, tierValue);
   const tier = selectedTier(tierValue);
   return {
     raw,
+    afterDiminishing,
+    afterSupportCaps,
     capped,
     totalRaw: raw,
     totalCapped: capped,
     perResident: capped * occupancyMultiplier(),
     roomMultiplier: 1,
     tier,
-    capLoss: tierCapLoss(raw, capped),
+    duplicateLoss: Math.max(0, raw - afterDiminishing),
+    supportCapLoss: Math.max(0, afterDiminishing - afterSupportCaps),
+    capLoss: tierCapLoss(afterSupportCaps, capped),
     capText: tier ? `Tier ${tier.tier}: soft ${tier.softCap}, hard ${tier.hardCap}` : "sans cap",
   };
 }
@@ -931,6 +1107,21 @@ function maxRequiredRoomVolume(entries) {
   return entries.reduce((best, entry) => Math.max(best, entry.item.requirements?.requiredRoomVolume ?? 0), 0);
 }
 
+function totalRequiredRoomVolume(entries) {
+  return entries.reduce((total, entry) => total + (entry.item.requirements?.requiredRoomVolume ?? 0), 0);
+}
+
+function maxObjectDimensions(entries) {
+  return entries.reduce((max, entry) => {
+    const dims = itemOccupancyDimensions(entry.item);
+    return {
+      width: Math.max(max.width, Math.min(dims.width || 0, dims.depth || 0)),
+      depth: Math.max(max.depth, Math.max(dims.width || 0, dims.depth || 0)),
+      height: Math.max(max.height, dims.height || 0),
+    };
+  }, { width: 0, depth: 0, height: 0 });
+}
+
 function maxRequiredRoomMaterialTier(entries) {
   return entries.reduce((best, entry) => Math.max(best, entry.item.requirements?.requiredRoomMaterialTier ?? 0), 0);
 }
@@ -951,7 +1142,7 @@ function estimateRoomDimensions(volume, height = normalizedHouseHeight()) {
 }
 
 function estimateConstructionMaterialsForRooms(entries, height = normalizedRoomHeight(), count = 1) {
-  const volume = maxRequiredRoomVolume(entries);
+  const volume = totalRequiredRoomVolume(entries);
   if (!volume) return null;
   const dims = estimateRoomDimensions(volume, height);
   const floorAndCeiling = dims.floorArea * 2 * count;
@@ -998,6 +1189,7 @@ function bestItemsWithDiminishingReturns(items, limit, maxScore = null, constrai
   const entries = [];
   const byType = new Map();
   const byItem = new Map();
+  if (constraints && !constraints.propertyTypeCounts) constraints.propertyTypeCounts = new Map();
   let total = 0;
 
   while (entries.length < limit) {
@@ -1006,14 +1198,20 @@ function bestItemsWithDiminishingReturns(items, limit, maxScore = null, constrai
 
     let best = null;
     for (const item of items) {
-      const floorArea = item.occupancy?.floorArea ?? 0;
+      const floorArea = floorAreaWhenOnSurface(item);
       const requiredVolume = item.requirements?.requiredRoomVolume ?? 0;
-      if (constraints?.maxVolume != null && requiredVolume > constraints.maxVolume) continue;
+      if (!itemFitsRoomDimensions(item, constraints)) continue;
+      if (constraints?.maxVolume != null && ((constraints.usedRequiredVolume ?? 0) + requiredVolume) > constraints.maxVolume) continue;
       if (constraints?.maxFloor != null && ((constraints.usedFloor ?? 0) + floorArea) > constraints.maxFloor) continue;
 
       const type = item.typeForRoomLimit ?? item.itemClass;
-      const typeCount = byType.get(type) ?? 0;
-      const multiplier = diminishingMultiplier(item, typeCount);
+      const propertyWide = item.diminishingMultiplierAcrossFullProperty != null;
+      const roomTypeCount = byType.get(type) ?? 0;
+      const propertyTypeCount = constraints?.propertyTypeCounts?.get(type) ?? 0;
+      const typeCount = propertyWide ? propertyTypeCount : roomTypeCount;
+      const multiplier = propertyWide
+        ? item.diminishingMultiplierAcrossFullProperty ** typeCount
+        : diminishingMultiplier(item, typeCount);
       const score = item.value * multiplier;
       if (score <= 0) continue;
       const ownedAvailable = ownedRemaining(item.itemClass, constraints) > 0;
@@ -1029,7 +1227,7 @@ function bestItemsWithDiminishingReturns(items, limit, maxScore = null, constrai
 
     const creditedScore = Math.min(best.score, remaining);
     if (!best.ownedAvailable && creditedScore < MIN_NON_OWNED_CREDITED_SCORE) break;
-    const floorArea = best.item.occupancy?.floorArea ?? 0;
+    const floorArea = floorAreaWhenOnSurface(best.item);
     const fromOwned = markOwnedUsed(best.item.itemClass, constraints);
     entries.push({
       item: best.item,
@@ -1037,14 +1235,22 @@ function bestItemsWithDiminishingReturns(items, limit, maxScore = null, constrai
       itemCount: (byItem.get(best.item.itemClass) ?? 0) + 1,
       typeCount: best.typeCount + 1,
       multiplier: best.multiplier,
+      baseScore: best.item.value,
       rawScore: best.score,
       score: creditedScore,
       capped: creditedScore < best.score,
+      supportCapLoss: Math.max(0, best.score - creditedScore),
       fromOwned,
     });
     total += creditedScore;
     if (constraints) constraints.usedFloor = (constraints.usedFloor ?? 0) + floorArea;
+    if (constraints) constraints.usedRequiredVolume = (constraints.usedRequiredVolume ?? 0) + (best.item.requirements?.requiredRoomVolume ?? 0);
+    if (constraints) constraints.surfaceCapacity = (constraints.surfaceCapacity ?? 0) + surfaceUnitsProvided(best.item);
+    if (constraints) constraints.usedSurface = (constraints.usedSurface ?? 0) + surfaceUnitsRequired(best.item);
     byType.set(best.type, best.typeCount + 1);
+    if (best.item.diminishingMultiplierAcrossFullProperty != null && constraints?.propertyTypeCounts) {
+      constraints.propertyTypeCounts.set(best.type, best.typeCount + 1);
+    }
     byItem.set(best.item.itemClass, (byItem.get(best.item.itemClass) ?? 0) + 1);
   }
 
@@ -1077,9 +1283,13 @@ function roomVolume() {
 
 function selectedRoomConstraints() {
   return {
+    maxWidth: normalizedRoomWidth(),
+    maxDepth: normalizedRoomDepth(),
+    maxHeight: normalizedRoomHeight(),
     maxFloor: roomFloorArea(),
     maxVolume: roomVolume(),
     usedFloor: 0,
+    usedRequiredVolume: 0,
     ownedUsage: new Map(),
   };
 }
@@ -1119,12 +1329,14 @@ function summarizeEntries(entries) {
       multipliers: [],
       capped: false,
       fromOwned: 0,
+      placedOnFloor: false,
     };
     current.quantityPerRoom += 1;
     current.score += entry.score;
     current.rawScore += entry.rawScore ?? entry.score;
     current.multipliers.push(entry.multiplier);
     current.capped = current.capped || entry.capped;
+    current.placedOnFloor = current.placedOnFloor || entry.placedOnFloor;
     if (entry.fromOwned) current.fromOwned += 1;
     byItem.set(entry.item.itemClass, current);
   }
@@ -1145,11 +1357,7 @@ function formatSupportCap(group) {
 }
 
 function estimateObjectFloor(entries) {
-  return entries.reduce((total, entry) => total + (entry.item.occupancy?.floorArea ?? 0), 0);
-}
-
-function maxRequiredVolume(entries) {
-  return entries.reduce((best, entry) => Math.max(best, entry.item.requirements?.requiredRoomVolume ?? 0), 0);
+  return entries.reduce((total, entry) => total + floorAreaWhenOnSurface(entry.item) + (entry.extraFloorFromSurfaceOverflow ?? 0), 0);
 }
 
 function renderRoomFitSummary(groups) {
@@ -1163,13 +1371,27 @@ function renderRoomFitSummary(groups) {
   const usedFloor = estimateObjectFloor(entries);
   const floor = roomFloorArea();
   const volume = roomVolume();
-  const requiredVolume = maxRequiredVolume(entries);
+  const requiredVolume = totalRequiredRoomVolume(entries);
+  const surface = surfaceSummary(entries);
   const floorClass = usedFloor > floor ? "bad" : "good";
   const volumeClass = requiredVolume > volume ? "bad" : "good";
+  const surfaceClass = surface.used > surface.capacity ? "bad" : "good";
   els.roomFitSummary.innerHTML = `
     <div><strong>${normalizedRoomWidth()}x${normalizedRoomDepth()}x${normalizedRoomHeight()}</strong><span>taille piece</span></div>
     <div class="${floorClass}"><strong>${usedFloor}/${floor}</strong><span>sol objets</span></div>
-    <div class="${volumeClass}"><strong>${requiredVolume}/${volume}</strong><span>volume requis</span></div>
+    <div class="${volumeClass}"><strong>${requiredVolume}/${volume}</strong><span>m3 requis objets / m3 piece</span></div>
+    <div class="${surfaceClass}"><strong>${surface.used}/${surface.capacity}</strong><span>surface posee / disponible</span></div>
+  `;
+}
+
+function formatScoreDetails(score) {
+  return `
+    <div class="calc-trace">
+      <span>brut objets <strong>${score.raw.toFixed(2)}</strong></span>
+      <span>apres doublons <strong>${score.afterDiminishing.toFixed(2)}</strong>${score.duplicateLoss > 0.01 ? ` (-${score.duplicateLoss.toFixed(2)})` : ""}</span>
+      <span>apres caps supports <strong>${score.afterSupportCaps.toFixed(2)}</strong>${score.supportCapLoss > 0.01 ? ` (-${score.supportCapLoss.toFixed(2)})` : ""}</span>
+      <span>apres tier <strong>${score.capped.toFixed(2)}</strong>${score.capLoss > 0.01 ? ` (-${score.capLoss.toFixed(2)})` : ""}</span>
+    </div>
   `;
 }
 
@@ -1193,7 +1415,8 @@ function renderOptimizer() {
     <div>
       <span>Total utile de la piece</span>
       <strong>${score.capped.toFixed(1)}</strong>
-      <small>${score.capLoss > 0.01 ? `${score.raw.toFixed(1)} brut, -${score.capLoss.toFixed(1)} par cap` : `${score.raw.toFixed(1)} brut, aucun cap`}</small>
+      <small>${score.raw.toFixed(1)} brut | ${score.afterSupportCaps.toFixed(1)} avant tier</small>
+      ${formatScoreDetails(score)}
     </div>
     <div>
       <span>Tier actif</span>
@@ -1229,12 +1452,19 @@ function renderOptimizer() {
           <span>${item.friendlyName} <small>x${summary.quantityPerRoom}</small></span>
           <div class="pill-row">
             <span class="pill">+${summary.score.toFixed(2)} XP / piece</span>
+            ${summary.rawScore - summary.score > 0.01 ? `<span class="pill locked">cap -${(summary.rawScore - summary.score).toFixed(2)}</span>` : ""}
             ${summary.fromOwned ? `<span class="pill">acquis x${summary.fromOwned}</span>` : ""}
             ${summary.capped ? `<span class="pill locked">plafonné</span>` : ""}
             ${formatReturnRange(summary)}
+            ${item.hasDynamicFurnishingValue ? `<span class="pill locked">valeur dynamique</span>` : ""}
             <span class="pill">${item.typeForRoomLimit ?? "General"}</span>
             <span class="pill">${formatFootprint(item)}</span>
-            ${item.requirements?.requiredRoomVolume != null ? `<span class="pill">vol ${item.requirements.requiredRoomVolume}</span>` : ""}
+            ${surfacePlacementKind(item) ? `<span class="pill">${surfacePlacementKind(item)}</span>` : ""}
+            ${summary.placedOnFloor ? `<span class="pill locked">pose au sol</span>` : ""}
+            ${surfaceUnitsProvided(item) ? `<span class="pill">surface +${surfaceUnitsProvided(item)}</span>` : ""}
+            ${surfaceUnitsRequired(item) ? `<span class="pill">surface -${surfaceUnitsRequired(item)}</span>` : ""}
+            ${itemFootprint(item).estimated ? `<span class="pill locked">empreinte estimee</span>` : ""}
+            ${item.requirements?.requiredRoomVolume != null ? `<span class="pill">m3 requis ${item.requirements.requiredRoomVolume}</span>` : ""}
             ${item.requirements?.requiredRoomMaterialTier != null ? `<span class="pill">T${item.requirements.requiredRoomMaterialTier}</span>` : ""}
             <span class="pill ${isAvailable(item) ? "" : "locked"}">${availabilityLabel(item)}</span>
           </div>
@@ -1255,15 +1485,27 @@ function entriesForRoom(roomName) {
   return optimizerGroups(roomName).flatMap((group) => group.entries);
 }
 
-function roomSpec(roomName) {
-  const optimization = roomOptimization(roomName);
+function cloneOptimizationContext(context) {
+  if (!context) return { ownedUsage: new Map(), propertyTypeCounts: new Map() };
+  return {
+    ...context,
+    ownedUsage: new Map(context.ownedUsage ?? []),
+    propertyTypeCounts: new Map(context.propertyTypeCounts ?? []),
+  };
+}
+
+function roomSpec(roomName, optimizationContext = null, tierValue = state.roomTier) {
+  const context = optimizationContext ?? cloneOptimizationContext(null);
+  if (context.maxHeight == null) context.maxHeight = normalizedHouseHeight();
+  const optimization = roomOptimization(roomName, tierValue, context);
   const entries = optimization.entries;
   const objectFloor = estimateObjectFloor(entries);
+  const objectDims = maxObjectDimensions(entries);
   const requiredTier = maxRequiredRoomMaterialTier(entries);
-  const volume = Math.max(maxRequiredVolume(entries), normalizedHouseHeight() * 4);
+  const volume = Math.max(totalRequiredRoomVolume(entries), normalizedHouseHeight() * 4);
   const minFloor = Math.max(Math.ceil(volume / normalizedHouseHeight()), Math.ceil(objectFloor * 1.35), 4);
-  const width = Math.max(2, Math.ceil(Math.sqrt(minFloor)));
-  const depth = Math.max(2, Math.ceil(minFloor / width));
+  const width = Math.max(2, objectDims.width, Math.ceil(Math.sqrt(minFloor)));
+  const depth = Math.max(2, objectDims.depth, Math.ceil(minFloor / width));
 
   return {
     name: roomName,
@@ -1272,10 +1514,13 @@ function roomSpec(roomName) {
     height: normalizedHouseHeight(),
     floorArea: width * depth,
     objectFloor,
+    objectDims,
     volume,
     score: optimization.score.capped,
     requiredTier,
     entries,
+    groups: optimization.groups,
+    scoreBreakdown: optimization.score,
   };
 }
 
@@ -1315,15 +1560,20 @@ function roomCandidateOrder() {
 function calculatedHousePlan() {
   const rooms = [];
   const stocks = new Map(Object.keys(state.materialStocks).map((tier) => [Number(tier), normalizedMaterialStock(tier)]));
+  const optimizationContext = { ownedUsage: new Map(), propertyTypeCounts: new Map(), maxHeight: normalizedHouseHeight() };
 
   for (const roomName of minimumUsefulRooms()) {
     if (!selectedRoom(roomName)) continue;
-    const spec = roomSpec(roomName);
-    const cost = estimateRoomConstruction(spec, rooms.length);
-    const tier = materialTierForRequirement(spec.requiredTier);
-    const scoreAtTier = roomScoreAtTier(roomName, tier);
+    const previewSpec = roomSpec(roomName, cloneOptimizationContext(optimizationContext));
+    const previewCost = estimateRoomConstruction(previewSpec, rooms.length);
+    const tier = materialTierForRequirement(previewSpec.requiredTier);
+    const previewTierSpec = roomSpec(roomName, cloneOptimizationContext(optimizationContext), tier);
+    const previewScoreAtTier = previewTierSpec.score;
     const available = stocks.get(tier) ?? 0;
-    if (available < cost || scoreAtTier <= 0) continue;
+    if (available < previewCost || previewScoreAtTier <= 0) continue;
+    const spec = roomSpec(roomName, optimizationContext, tier);
+    const cost = estimateRoomConstruction(spec, rooms.length);
+    const scoreAtTier = spec.score;
     const sameTypeCount = rooms.filter((room) => room.name === roomName).length + 1;
     rooms.push({ ...spec, scoreAtTier, cost, index: sameTypeCount, materialTier: tier, creditedScore: scoreAtTier * roomDuplicateMultiplier(sameTypeCount - 1) });
     stocks.set(tier, available - cost);
@@ -1332,13 +1582,14 @@ function calculatedHousePlan() {
   while (rooms.length < 24) {
     const candidates = playableRooms()
       .map((room) => {
-        const spec = roomSpec(room.name);
+        const spec = roomSpec(room.name, cloneOptimizationContext(optimizationContext));
         const sameTypeCount = rooms.filter((current) => current.name === room.name).length + 1;
         const cost = estimateRoomConstruction(spec, rooms.length);
         const tier = materialTierForRequirement(spec.requiredTier);
-        const scoreAtTier = roomScoreAtTier(room.name, tier);
+        const tierSpec = roomSpec(room.name, cloneOptimizationContext(optimizationContext), tier);
+        const scoreAtTier = tierSpec.score;
         const available = stocks.get(tier) ?? 0;
-        return { ...spec, scoreAtTier, cost, index: sameTypeCount, materialTier: tier, affordable: available >= cost && scoreAtTier > 0 };
+        return { ...tierSpec, scoreAtTier, cost, index: sameTypeCount, materialTier: tier, affordable: available >= cost && scoreAtTier > 0 };
       })
       .filter((room) => room.affordable)
       .sort((a, b) => roomEfficiencyScore(b, b.index - 1) - roomEfficiencyScore(a, a.index - 1));
@@ -1346,8 +1597,9 @@ function calculatedHousePlan() {
     const best = candidates[0];
     if (!best) break;
     const available = stocks.get(best.materialTier) ?? 0;
+    const committedSpec = roomSpec(best.name, optimizationContext, best.materialTier);
     stocks.set(best.materialTier, available - best.cost);
-    rooms.push({ ...best, creditedScore: best.scoreAtTier * roomDuplicateMultiplier(best.index - 1) });
+    rooms.push({ ...best, ...committedSpec, creditedScore: committedSpec.score * roomDuplicateMultiplier(best.index - 1) });
   }
 
   const counts = new Map();
@@ -1418,9 +1670,8 @@ function houseRooms(plan = calculatedHousePlan()) {
 function houseShoppingList() {
   const byItem = new Map();
   const plan = calculatedHousePlan();
-  const optimizationContext = { ownedUsage: new Map() };
   for (const room of plan.rooms) {
-    for (const group of roomOptimization(room.name, room.materialTier, optimizationContext).groups) {
+    for (const group of room.groups ?? []) {
       for (const summary of summarizeEntries(group.entries)) {
         const current = byItem.get(summary.item.itemClass) ?? {
           item: summary.item,
@@ -1439,7 +1690,7 @@ function houseShoppingList() {
 }
 
 function roomObjectDetails(room) {
-  return roomOptimization(room.name, room.materialTier).groups
+  return (room.groups ?? roomOptimization(room.name, room.materialTier).groups)
     .flatMap((group) => summarizeEntries(group.entries).map((summary) => ({ group, summary })))
     .map(({ group, summary }) => `
       <div class="room-object-row">
@@ -1489,7 +1740,7 @@ function renderHousePlanner() {
       <div class="room-detail-head">
         <div>
           <h4>${room.name} #${room.index}</h4>
-          <span>${room.width}x${room.depth}x${room.height} | T${room.materialTier} | sol objets ${room.objectFloor}/${room.floorArea}${room.restPropertyCapPercent != null ? ` | cap ${Math.round(room.restPropertyCapPercent * 100)}% du reste` : ""}</span>
+          <span>${room.width}x${room.depth}x${room.height} | T${room.materialTier} | sol objets ${room.objectFloor}/${room.floorArea} | surface ${surfaceSummary(room.entries).used}/${surfaceSummary(room.entries).capacity}${room.restPropertyCapPercent != null ? ` | cap ${Math.round(room.restPropertyCapPercent * 100)}% du reste` : ""}</span>
         </div>
         <strong>${room.creditedScore.toFixed(1)}</strong>
       </div>
@@ -1501,11 +1752,13 @@ function renderHousePlanner() {
 function renderDataCards() {
   els.dataHint.textContent = `${state.data.meta.fileCount} fichiers lus`;
   const config = state.data.housingConfig ?? {};
+  const dynamicCount = state.data.housing.filter((item) => item.hasDynamicFurnishingValue).length;
   els.dataCards.innerHTML = `
     <article class="data-card"><span>Objets housing utiles</span><strong>${state.data.housingItems.length}</strong></article>
     <article class="data-card"><span>Recettes</span><strong>${state.data.recipes.length}</strong></article>
     <article class="data-card"><span>Occupations objet</span><strong>${state.data.occupancy?.length ?? 0}</strong></article>
     <article class="data-card"><span>Categories piece</span><strong>${state.data.roomCategories.length}</strong></article>
+    <article class="data-card"><span>Valeurs dynamiques</span><strong>${dynamicCount}</strong></article>
     <article class="data-card"><span>Rendement doublons piece</span><strong>${config.roomCategoryDiminishingReturnRate ?? "?"}</strong></article>
     <article class="data-card"><span>Tiers maison</span><strong>${state.data.roomTiers.length}</strong></article>
   `;
@@ -1515,7 +1768,7 @@ function renderDataCards() {
       ${state.data.roomCategories.map((room) => `
         <div class="data-row">
           <span>${room.name}</span>
-          <small>${room.canBeRoomCategory ? "piece" : "support"}${room.maxSupportPercentOfPrimary != null ? ` | support ${Math.round(room.maxSupportPercentOfPrimary * 100)}%` : ""}${room.capToPercentOfRestOfProperty != null ? ` | propriete ${Math.round(room.capToPercentOfRestOfProperty * 100)}%` : ""}</small>
+          <small>${room.canBeRoomCategory ? "piece" : "support"}${room.maxSupportPercentOfPrimary != null ? ` | support ${Math.round(room.maxSupportPercentOfPrimary * 100)}%` : ""}${Object.keys(room.maxSupportPercentOfPrimaryPerCategory ?? {}).length ? ` | exceptions ${Object.entries(room.maxSupportPercentOfPrimaryPerCategory).map(([name, value]) => `${name} ${Math.round(value * 100)}%`).join(", ")}` : ""}${room.capToPercentOfRestOfProperty != null ? ` | propriete ${Math.round(room.capToPercentOfRestOfProperty * 100)}%` : ""}</small>
         </div>
       `).join("")}
     </section>

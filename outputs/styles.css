@@ -492,6 +492,29 @@ p {
   font-size: 42px;
 }
 
+.calc-trace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.room-total-score .calc-trace span {
+  padding: 5px 8px;
+  border: 1px solid #d8e2d0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.room-total-score .calc-trace strong {
+  display: inline;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

@@ -6,7 +6,7 @@
   "scripts": {
     "extract": "node src/extract-eco-data.mjs",
     "start-app": "node ../../work/serve-outputs.mjs",
-    "test": "node test/run-fixture-test.mjs"
+    "test": "node test/run-fixture-test.mjs && node test/run-housing-calculation-test.mjs"
   },
   "engines": {
     "node": ">=20"

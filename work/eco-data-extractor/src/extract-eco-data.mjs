@@ -79,6 +79,29 @@ async function readHousingConfig(ecoPath) {
   };
 }
 
+async function readMarketplaceBlueprintWorldObjects(ecoPath) {
+  if (!ecoPath) return new Set();
+
+  const catalogPath = path.join(ecoPath, "Eco_Data", "StreamingAssets", "aa", "catalog.bin");
+  if (!(await exists(catalogPath))) return new Set();
+
+  const source = (await fs.readFile(catalogPath)).toString("latin1");
+  const iapIndex = source.indexOf("Assets/Art/IAP");
+  if (iapIndex === -1) return new Set();
+
+  const start = Math.max(0, iapIndex - 500);
+  const bakedWindIndex = source.indexOf("BakedWindAnimators", iapIndex);
+  const end = bakedWindIndex === -1 ? Math.min(source.length, iapIndex + 20000) : bakedWindIndex;
+  const iapBlock = source.slice(start, end);
+  const worldObjects = new Set();
+
+  for (const match of iapBlock.matchAll(/\b([A-Za-z0-9_]+Object)\.prefab\b/g)) {
+    worldObjects.add(match[1]);
+  }
+
+  return worldObjects;
+}
+
 async function listCsFiles(root) {
   const files = [];
 
@@ -139,6 +162,9 @@ function parseTags(attributes) {
   const tags = [];
   for (const match of attributes.matchAll(/Tag\s*\(\s*"((?:\\"|[^"])*)"\s*\)/g)) {
     tags.push(match[1].replace(/\\"/g, "\""));
+  }
+  for (const match of attributes.matchAll(/Tag\s*\(\s*nameof\s*\(\s*SurfaceTags\.([A-Za-z0-9_]+)\s*\)\s*\)/g)) {
+    tags.push(`SurfaceTags.${match[1]}`);
   }
   return tags;
 }
@@ -262,12 +288,15 @@ function parseHousingValue(source) {
   const getString = (key) => parseStringLiteral(body.match(new RegExp(`${key}\\s*=\\s*([^,\\n\\r]+)`, "m"))?.[1]);
   const getRoomCategory = () => parseStringLiteral(body.match(/Category\s*=\s*HousingConfig\.GetRoomCategory\s*\(\s*([^)]+)\)/m)?.[1]);
   const getNumber = (key) => parseNumber(body.match(new RegExp(`${key}\\s*=\\s*([0-9.]+[fFdDmM]?)`, "m"))?.[1]);
+  const dynamic = /IHasDynamicHomeFurnishingValue|DynamicFurnishingValue|CalcArtValue/.test(source);
 
   return {
     category: getRoomCategory() ?? getString("Category"),
     value: getNumber("BaseValue") ?? getNumber("Val"),
     typeForRoomLimit: getString("TypeForRoomLimit"),
     diminishingReturnPercent: getNumber("DiminishingReturnPercent") ?? getNumber("DiminishingReturnMultiplier"),
+    diminishingMultiplierAcrossFullProperty: getNumber("DiminishingMultiplierAcrossFullProperty"),
+    hasDynamicFurnishingValue: dynamic,
   };
 }
 
@@ -320,6 +349,14 @@ function parseRoomCategories(source) {
 
     const getPrimitive = (key) => body.match(new RegExp(`${key}\\s*=\\s*([^,\\n\\r\\}]+)`, "m"))?.[1]?.trim();
     const getStringList = (key) => body.match(new RegExp(`${key}\\s*=\\s*new\\[\\]\\s*\\{([^\\}]*)\\}`, "m"))?.[1];
+    const perCategory = {};
+    const perCategoryStart = body.indexOf("MaxSupportPercentOfPrimaryPerCategory");
+    const perCategoryBody = perCategoryStart >= 0 ? extractBalancedObject(body, perCategoryStart) : null;
+    if (perCategoryBody) {
+      for (const entry of perCategoryBody.matchAll(/\{\s*"((?:\\"|[^"])*)"\s*,\s*([.0-9]+[fFdDmM]?)\s*\}/g)) {
+        perCategory[entry[1].replace(/\\"/g, "\"")] = parseNumber(entry[2]);
+      }
+    }
     const displayName = parseStringLiteral(getPrimitive("DisplayName"));
     if (!displayName) continue;
 
@@ -331,6 +368,7 @@ function parseRoomCategories(source) {
       negatesValue: parseBool(getPrimitive("NegatesValue")) ?? false,
       shouldCapFromRoomMaterials: parseBool(getPrimitive("ShouldCapFromRoomMaterials")) ?? true,
       maxSupportPercentOfPrimary: parseNumber(getPrimitive("MaxSupportPercentOfPrimary")),
+      maxSupportPercentOfPrimaryPerCategory: perCategory,
       capToPercentOfRestOfProperty: parseNumber(getPrimitive("CapToPercentOfRestOfProperty")),
       affectsPropertyTypes: parseEnumArray(getStringList("AffectsPropertyTypes")),
       supportingRoomCategoryNames: parseStringArray(getStringList("SupportingRoomCategoryNames")),
@@ -360,10 +398,16 @@ function parseRoomTiers(source) {
 }
 
 function parseWorldObjectRequirements(entry) {
+  const attachment = entry.body.match(/GetOccupancyContext\s*=>\s*new\s+SideAttachedContext\s*\(\s*([^,]+),/m)?.[1] ?? null;
+  const attachmentDirections = attachment
+    ? [...attachment.matchAll(/DirectionAxisFlags\.([A-Za-z0-9_]+)/g)].map((match) => match[1])
+    : [];
   return {
     className: entry.name,
     displayName: parseClassDisplay(entry),
     representedItemClass: entry.body.match(/RepresentedItemType\s*=>\s*typeof\(([A-Za-z0-9_]+)\)/m)?.[1] ?? null,
+    ...parseBrowserMetadata(entry),
+    attachmentDirections,
     requireRoomContainment: /\[RequireRoomContainment\]/.test(entry.attributes),
     requiredRoomVolume: parseNumber(entry.attributes.match(/RequireRoomVolume\s*\(\s*([0-9.]+[fFdDmM]?)/m)?.[1]),
     requiredRoomMaterialTier: parseNumber(entry.attributes.match(/RequireRoomMaterialTier\s*\(\s*([0-9.]+[fFdDmM]?)/m)?.[1]),
@@ -377,15 +421,15 @@ function summarizeOccupancy(objectClass, coords, portTypes) {
   const xs = coords.map((coord) => coord.x);
   const ys = coords.map((coord) => coord.y);
   const zs = coords.map((coord) => coord.z);
-  const floorCells = new Set(coords.map((coord) => `${coord.x}:${coord.y}`));
+  const floorCells = new Set(coords.map((coord) => `${coord.x}:${coord.z}`));
 
   return {
     worldObjectClass: objectClass,
     blockCount: coords.length,
     floorArea: floorCells.size,
     width: Math.max(...xs) - Math.min(...xs) + 1,
-    depth: Math.max(...ys) - Math.min(...ys) + 1,
-    height: Math.max(...zs) - Math.min(...zs) + 1,
+    depth: Math.max(...zs) - Math.min(...zs) + 1,
+    height: Math.max(...ys) - Math.min(...ys) + 1,
     min: { x: Math.min(...xs), y: Math.min(...ys), z: Math.min(...zs) },
     max: { x: Math.max(...xs), y: Math.max(...ys), z: Math.max(...zs) },
     ports: [...new Set(portTypes)].sort(),
@@ -424,8 +468,9 @@ function parseClasses(source) {
   const classRegex = /((?:\[[^\]]+\]\s*)*)public\s+(?:partial\s+)?class\s+([A-Za-z0-9_]+)\s*:\s*([^\n\r{]+)/g;
 
   for (const match of source.matchAll(classRegex)) {
+    const publicIndex = match.index + (match[1]?.length ?? 0);
     classes.push({
-      attributes: readLeadingAttributes(source, match.index) || match[1] || "",
+      attributes: readLeadingAttributes(source, publicIndex) || match[1] || "",
       name: match[2],
       base: match[3].trim(),
       start: match.index,
@@ -474,6 +519,11 @@ function parseFile(filePath, source, modsRoot) {
   const recipeClasses = classes.filter((entry) => /\bRecipe/.test(entry.base));
   const skillClasses = classes.filter((entry) => /\bSkill\b/.test(entry.base));
   const worldObjectClasses = classes.filter((entry) => /\bWorldObject\b|WorldObject$|SettlementFoundationObject|WorldObject,/.test(entry.base) || entry.body.includes("RepresentedItemType"));
+  const dynamicWorldObjectClasses = new Set(
+    worldObjectClasses
+      .filter((entry) => /PictureFrameObject|IHasDynamicHomeFurnishingValue|DynamicFurnishingValue/.test(`${entry.base}\n${entry.body}`))
+      .map((entry) => entry.name)
+  );
 
   const items = itemClasses.map((entry) => ({
     className: entry.name,
@@ -488,12 +538,14 @@ function parseFile(filePath, source, modsRoot) {
     .map((entry) => {
       const housing = parseHousingValue(entry.body);
       if (!housing) return null;
+      const worldObjectClass = entry.base.match(/WorldObjectItem<([A-Za-z0-9_]+)>/)?.[1] ?? null;
       return {
         itemClass: entry.name,
         friendlyName: parseClassDisplay(entry),
         description: parseClassDescription(entry),
-        worldObjectClass: entry.base.match(/WorldObjectItem<([A-Za-z0-9_]+)>/)?.[1] ?? null,
+        worldObjectClass,
         ...housing,
+        hasDynamicFurnishingValue: housing.hasDynamicFurnishingValue || dynamicWorldObjectClasses.has(worldObjectClass),
         ...parseBrowserMetadata(entry),
         source: relativePath,
       };
@@ -563,12 +615,16 @@ async function extract(modsPath, options = {}) {
   }
 
   const files = await listCsFiles(resolvedModsPath);
+  const marketplaceBlueprintWorldObjects = await readMarketplaceBlueprintWorldObjects(options.ecoPath);
   const result = {
     meta: {
       extractorVersion: VERSION,
       extractedAt: new Date().toISOString(),
       modsPath: resolvedModsPath,
       fileCount: files.length,
+      marketplaceBlueprintSource: marketplaceBlueprintWorldObjects.size > 0
+        ? "Eco_Data/StreamingAssets/aa/catalog.bin: Assets/Art/IAP"
+        : null,
     },
     items: [],
     housing: [],
@@ -594,6 +650,20 @@ async function extract(modsPath, options = {}) {
     result.roomTiers.push(...parsed.roomTiers);
   }
 
+  const marketplaceBlueprintItems = new Set(
+    result.items
+      .filter((item) => marketplaceBlueprintWorldObjects.has(item.worldObjectClass))
+      .map((item) => item.className)
+  );
+
+  result.items = result.items.filter((item) => !marketplaceBlueprintItems.has(item.className));
+  result.housing = result.housing.filter((item) => !marketplaceBlueprintItems.has(item.itemClass));
+  result.recipes = result.recipes.filter((recipe) =>
+    recipe.products.length === 0 || recipe.products.some((product) => !marketplaceBlueprintItems.has(product.itemClass))
+  );
+  result.worldObjects = result.worldObjects.filter((worldObject) => !marketplaceBlueprintWorldObjects.has(worldObject.className));
+  result.occupancy = result.occupancy.filter((entry) => !marketplaceBlueprintWorldObjects.has(entry.worldObjectClass));
+
   result.items = sortByClassName(result.items);
   result.housing = result.housing.sort((a, b) => a.itemClass.localeCompare(b.itemClass));
   result.recipes = sortByClassName(result.recipes);
@@ -611,6 +681,10 @@ async function extract(modsPath, options = {}) {
     occupancy: result.occupancy.length,
     roomCategories: result.roomCategories.length,
     roomTiers: result.roomTiers.length,
+  };
+  result.meta.filteredMarketplaceBlueprints = {
+    worldObjects: marketplaceBlueprintWorldObjects.size,
+    items: marketplaceBlueprintItems.size,
   };
 
   return result;
@@ -645,4 +719,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { extract, parseFile };
+export { extract, parseFile, readMarketplaceBlueprintWorldObjects };

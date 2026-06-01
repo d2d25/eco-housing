@@ -1,9 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { parseFile } from "../src/extract-eco-data.mjs";
 
-const root = path.resolve("work/eco-data-extractor/fixtures");
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(testDir, "../fixtures");
 const file = path.join(root, "SampleChair.cs");
 const source = await fs.readFile(file, "utf8");
 const parsed = parseFile(file, source, root);
