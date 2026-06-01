@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
 import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKind, surfaceSummary, surfaceUnitsProvided, surfaceUnitsRequired } from "../domain/placementRules";
@@ -10,6 +10,9 @@ import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems,
 import { useRoomOptimizationWorker } from "./useRoomOptimizationWorker";
 
 const PROFESSION_ORDER = ["Carpenter", "Mason", "Farmer", "Hunter", "Chef", "Tailor", "Smith", "Engineer", "Scientist"];
+const APP_VERSION = "0.1.0-beta";
+const EXPORT_SCHEMA_VERSION = 1;
+const SUPPORTED_EXPORT_SCHEMA_VERSIONS = new Set([1]);
 
 export function App() {
   const [model, setModel] = useState<EcoModel | null>(null);
@@ -33,6 +36,18 @@ export function App() {
     setConfig((current) => ({ ...current, ...partial }));
   }
 
+  async function importExportJson(file: File) {
+    try {
+      if (!model) throw new Error("Cannot import before Eco data is loaded.");
+      const raw = await file.text();
+      const imported = parseImportedIssueJson(JSON.parse(raw), model);
+      setConfig((current) => ({ ...current, ...imported.config, activeView: "room" }));
+      setOwnedItems(imported.ownedItems);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   if (error) return <main className="boot-error">{error}</main>;
   if (!model) return <main className="boot-error">Chargement des donnees Eco...</main>;
 
@@ -46,7 +61,7 @@ export function App() {
           <span className="mark">E</span>
           <div>
             <h1>Eco Housing</h1>
-            <p>Piece + objets</p>
+            <p>Piece + objets - {APP_VERSION}</p>
           </div>
         </div>
         <nav className="tabs" aria-label="Navigation">
@@ -79,6 +94,7 @@ export function App() {
             ownedItems={ownedItems}
             onOpenOwned={() => setOwnedOpen(true)}
             onOpenAllowed={() => setAllowedOpen(true)}
+            onImportJson={importExportJson}
           />
         ) : (
           <ObjectsPage model={model} config={config} update={update} selectedSkills={selectedSkills} />
@@ -144,8 +160,10 @@ function RoomPage(props: {
   ownedItems: Map<ItemClass, number>;
   onOpenOwned: () => void;
   onOpenAllowed: () => void;
+  onImportJson: (file: File) => void;
 }) {
   const { model, config, update, selectedSkills, disabledItems, ownedItems } = props;
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Outdoor" && room.name !== "Cultural");
   const tiers = model.roomTiers;
   const optimizationState = useRoomOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems });
@@ -156,6 +174,19 @@ function RoomPage(props: {
     <section className="room-page">
       <div className="page-actions">
         <span>{optimization ? `categories compatibles: ${optimization.groups.map((group) => group.category).join(", ")}` : "calcul en cours"}</span>
+        <button disabled={!optimization} onClick={() => optimization && exportIssueJson(model, config, selectedSkills, ownedItems, disabledItems, optimization)}>Export</button>
+        <button onClick={() => importInputRef.current?.click()}>Import</button>
+        <input
+          ref={importInputRef}
+          className="file-input"
+          type="file"
+          accept="application/json,.json"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (file) props.onImportJson(file);
+            event.currentTarget.value = "";
+          }}
+        />
         <button onClick={props.onOpenOwned}>Objets acquis ({[...ownedItems.values()].reduce((a, b) => a + b, 0)})</button>
         <button onClick={props.onOpenAllowed}>Autorisations</button>
       </div>
@@ -183,6 +214,156 @@ function RoomPage(props: {
       )}
     </section>
   );
+}
+
+function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set<SkillClass>, ownedItems: Map<ItemClass, number>, disabledItems: Set<ItemClass>, optimization: RoomOptimization) {
+  const skillByClass = new Map(model.skills.map((skill) => [skill.className, skill]));
+  const itemByClass = new Map(model.housingItems.map((item) => [item.itemClass, item]));
+  const report = {
+    format: {
+      name: "eco-housing-issue",
+      schemaVersion: EXPORT_SCHEMA_VERSION,
+      breakingChangePolicy: "Increment schemaVersion when import-compatible fields change incompatibly.",
+    },
+    app: {
+      name: "Eco Housing",
+      version: APP_VERSION,
+      url: window.location.href,
+      exportedAt: new Date().toISOString(),
+    },
+    roomInput: {
+      roomType: config.roomType,
+      tier: config.roomTier,
+      width: config.width,
+      depth: config.depth,
+      height: config.height,
+      volume: config.width * config.depth * config.height,
+    },
+    selectedSkills: [...selectedSkills].sort().map((skillClass) => ({
+      className: skillClass,
+      name: skillByClass.get(skillClass)?.friendlyName ?? skillClass,
+      professionGroup: skillByClass.get(skillClass)?.professionGroup ?? null,
+    })),
+    ownedItems: [...ownedItems.entries()].filter(([, quantity]) => quantity > 0).sort(([a], [b]) => a.localeCompare(b)).map(([itemClass, quantity]) => ({
+      itemClass,
+      name: itemByClass.get(itemClass)?.friendlyName ?? itemClass,
+      quantity,
+    })),
+    disabledItems: [...disabledItems].sort().map((itemClass) => ({
+      itemClass,
+      name: itemByClass.get(itemClass)?.friendlyName ?? itemClass,
+    })),
+    score: optimization.score,
+    selectedItems: optimization.groups.map((group) => ({
+      category: group.category,
+      role: group.role,
+      score: group.score,
+      supportCap: group.supportCap,
+      supportCapPercent: group.supportCapPercent,
+      entries: summarizeEntries(group.entries).map((entry) => ({
+        itemClass: entry.item.itemClass,
+        name: entry.item.friendlyName,
+        category: entry.item.category,
+        typeForRoomLimit: entry.item.typeForRoomLimit,
+        quantity: entry.quantityPerRoom,
+        score: entry.score,
+        rawScore: entry.rawScore,
+        fromOwned: entry.fromOwned,
+        footprint: formatFootprint(entry.item),
+        requiredRoomVolume: entry.item.requirements?.requiredRoomVolume ?? null,
+        requiredRoomMaterialTier: entry.item.requirements?.requiredRoomMaterialTier ?? null,
+        placement: surfacePlacementKind(entry.item) || null,
+        placedOnFloor: entry.placedOnFloor,
+      })),
+    })),
+    constraints: {
+      roomFloor: config.width * config.depth,
+      roomVolume: config.width * config.depth * config.height,
+      usedFloor: optimization.constraints.usedFloor,
+      usedRequiredVolume: optimization.constraints.usedRequiredVolume,
+      surfaceCapacity: optimization.constraints.surfaceCapacity,
+      usedSurface: optimization.constraints.usedSurface,
+    },
+    expectedGameEvidence: {
+      required: "Attach a screenshot of Eco's in-game Room Details tooltip for this exact room.",
+    },
+  };
+
+  const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  link.href = url;
+  link.download = `eco-housing-issue-${timestamp}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function parseImportedIssueJson(data: unknown, model: EcoModel): { config: Partial<AppConfig>; ownedItems: Map<ItemClass, number> } {
+  if (!isRecord(data)) throw new Error("Invalid import file: expected a JSON object.");
+
+  const format = isRecord(data.format) ? data.format : null;
+  const schemaVersion = Number(format?.schemaVersion ?? 0);
+  if (!SUPPORTED_EXPORT_SCHEMA_VERSIONS.has(schemaVersion)) {
+    throw new Error(`Unsupported import schema version: ${schemaVersion || "missing"}. Supported version: ${EXPORT_SCHEMA_VERSION}.`);
+  }
+
+  const roomInput = isRecord(data.roomInput) ? data.roomInput : null;
+  if (!roomInput) throw new Error("Invalid import file: missing roomInput.");
+
+  const roomNames = new Set(model.roomCategories.map((room) => room.name));
+  const skillClasses = new Set(model.skills.map((skill) => skill.className));
+  const itemClasses = new Set(model.housingItems.map((item) => item.itemClass));
+  const roomType = readString(roomInput.roomType, "roomInput.roomType");
+  if (!roomNames.has(roomType)) throw new Error(`Invalid import file: unknown room type "${roomType}".`);
+
+  const selectedSkills = readClassArray(data.selectedSkills, "selectedSkills").filter((skillClass) => skillClasses.has(skillClass));
+  const disabledItems = readClassArray(data.disabledItems, "disabledItems").filter((itemClass) => itemClasses.has(itemClass));
+  const ownedItems = new Map<ItemClass, number>();
+  for (const entry of readObjectArray(data.ownedItems, "ownedItems")) {
+    const itemClass = readString(entry.itemClass, "ownedItems.itemClass");
+    const quantity = Math.max(0, Math.floor(readNumber(entry.quantity, "ownedItems.quantity")));
+    if (quantity > 0 && itemClasses.has(itemClass)) ownedItems.set(itemClass, quantity);
+  }
+
+  return {
+    config: {
+      roomType,
+      roomTier: readNumber(roomInput.tier, "roomInput.tier"),
+      width: readNumber(roomInput.width, "roomInput.width"),
+      depth: readNumber(roomInput.depth, "roomInput.depth"),
+      height: readNumber(roomInput.height, "roomInput.height"),
+      selectedSkills,
+      disabledItems,
+    },
+    ownedItems,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readString(value: unknown, field: string) {
+  if (typeof value !== "string" || !value) throw new Error(`Invalid import file: missing ${field}.`);
+  return value;
+}
+
+function readNumber(value: unknown, field: string) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new Error(`Invalid import file: invalid ${field}.`);
+  return number;
+}
+
+function readObjectArray(value: unknown, field: string) {
+  if (!Array.isArray(value)) throw new Error(`Invalid import file: missing ${field}.`);
+  return value.filter(isRecord);
+}
+
+function readClassArray(value: unknown, field: string) {
+  return readObjectArray(value, field).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`));
 }
 
 function RoomOptimizationResults({ optimization, width, depth, height, roomVolume }: { optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {

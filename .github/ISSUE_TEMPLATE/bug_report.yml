@@ -1,0 +1,42 @@
+name: App vs game calculation bug
+description: Report a difference between Eco Housing and Eco's in-game Room Details tooltip
+title: "[Bug] "
+labels: ["bug", "beta"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version / URL
+      description: App version or beta URL tested.
+      placeholder: "0.1.0-beta / https://..."
+    validations:
+      required: true
+  - type: textarea
+    id: app-export-json
+    attributes:
+      label: Exported issue JSON
+      description: Use the Room page button "Export" and paste or attach the generated JSON.
+      placeholder: "Paste JSON here or attach the file to the issue."
+    validations:
+      required: true
+  - type: textarea
+    id: game-screenshot
+    attributes:
+      label: Eco Room Details screenshot
+      description: Attach a screenshot of Eco's in-game Room Details tooltip for the same room.
+      placeholder: "Drag and drop the screenshot here."
+    validations:
+      required: true
+  - type: textarea
+    id: difference
+    attributes:
+      label: Difference summary
+      description: Explain what differs between the app and the game.
+      placeholder: "App total: 18.6. Game total: 18.74. Seating cap looks different."
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes
+      description: Add any context that is not already in the JSON or screenshot.

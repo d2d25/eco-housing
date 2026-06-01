@@ -1,0 +1,5 @@
+{
+  "installCommand": "npm --prefix work/eco-housing-app ci",
+  "buildCommand": "npm --prefix work/eco-housing-app run build",
+  "outputDirectory": "outputs"
+}

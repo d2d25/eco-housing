@@ -1,0 +1,11 @@
+{
+  "name": "eco-housing-beta",
+  "version": "0.1.0-beta",
+  "private": true,
+  "scripts": {
+    "install:app": "npm --prefix work/eco-housing-app ci",
+    "dev": "npm --prefix work/eco-housing-app run dev",
+    "test": "npm --prefix work/eco-housing-app test",
+    "build": "npm --prefix work/eco-housing-app run build"
+  }
+}

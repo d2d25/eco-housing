@@ -1,0 +1,31 @@
+name: General beta feedback
+description: Share usability feedback or non-calculation issues
+title: "[Beta] "
+labels: ["beta", "feedback"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version / URL
+      placeholder: "0.1.0-beta / https://..."
+    validations:
+      required: true
+  - type: textarea
+    id: useful
+    attributes:
+      label: What works well
+      description: What already helps you in the app.
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What is confusing
+      description: Controls, labels, or results that are hard to understand.
+  - type: textarea
+    id: missing
+    attributes:
+      label: What is missing
+      description: Features or information you expected while testing.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes

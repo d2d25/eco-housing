@@ -17,6 +17,7 @@
 body { margin: 0; background: var(--bg); color: var(--ink); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 .shell {
   min-height: 100vh;
@@ -77,6 +78,7 @@ summary { display: flex; justify-content: space-between; font-weight: 800; curso
 .field-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 input, select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); }
+.file-input { display: none; }
 
 .segmented { display: grid; gap: 8px; }
 .segmented > span { color: var(--muted); font-size: 12px; font-weight: 800; }
