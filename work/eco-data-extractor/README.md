@@ -1,37 +1,54 @@
 # Eco Data Extractor
 
-Extracteur local pour transformer les fichiers serveur/mods d'Eco en JSON exploitable par un futur outil d'optimisation housing/craft.
+Local extractor that turns Eco server/mod files into JSON consumed by the housing optimizer.
 
-## Utilisation
+## Usage
+
+Extract game data:
 
 ```powershell
 node .\work\eco-data-extractor\src\extract-eco-data.mjs --eco-path "C:\Program Files (x86)\Steam\steamapps\common\Eco" --out .\outputs\eco-data.json
 ```
 
-Tu peux aussi pointer directement vers le dossier `Mods` :
+Extract game data and item icons in one pass:
+
+```powershell
+node .\work\eco-data-extractor\src\extract-eco-data.mjs --eco-path "C:\Program Files (x86)\Steam\steamapps\common\Eco" --out .\outputs\eco-data.json --extract-icons
+```
+
+You can also point directly to the `Mods` directory:
 
 ```powershell
 node .\work\eco-data-extractor\src\extract-eco-data.mjs --mods-path "C:\Program Files (x86)\Steam\steamapps\common\Eco\Eco_Data\Server\Mods" --out .\outputs\eco-data.json
 ```
 
-## Donnees extraites
+Extract item icons from Eco's Unity icon bundle:
 
-- `items` : classes item, nom lisible, description si disponible, source.
-- `housing` : valeurs housing declarees dans `HousingValue`.
-- `recipes` : produits, ingredients, skill requis, table de craft.
-- `skills` : classes de skills detectees.
+```powershell
+npm run extract:icons -- --eco-path "C:\Program Files (x86)\Steam\steamapps\common\Eco"
+```
 
-L'objectif est de garder cette couche independante de l'interface : quand Eco change de version, on relance l'extracteur et l'app lit le nouveau JSON.
+After icons are extracted, `extract-eco-data.mjs` automatically adds `iconUrl` fields when matching PNG files exist in `outputs/assets/eco-icons`. Use `--icons-dir` to point at another icon directory.
 
-## Lancer l'interface
+## Extracted Data
 
-Depuis la racine du projet :
+- `items`: item classes, readable names, descriptions, browser metadata, and icon URLs when available.
+- `housing`: housing values declared through `HousingValue` or `HomeFurnishingValue`.
+- `recipes`: products, ingredients, required skills, and crafting stations.
+- `skills`: detected skill classes and profession groups.
+- `worldObjects`, `occupancy`, `roomCategories`, `roomTiers`: placement and housing calculation rules used by the app.
+
+The extractor stays independent from the UI. When Eco changes version, rerun the extractors and the app reads the updated JSON/assets.
+
+## Run The App
+
+From the repository root:
 
 ```powershell
 node .\work\serve-outputs.mjs
 ```
 
-Puis ouvrir :
+Then open:
 
 ```text
 http://127.0.0.1:4173

@@ -5,6 +5,7 @@
   "scripts": {
     "install:app": "npm --prefix work/eco-housing-app ci",
     "dev": "npm --prefix work/eco-housing-app run dev",
+    "extract:icons": "npm --prefix work/eco-data-extractor run extract:icons -- --out ../../outputs/assets/eco-icons",
     "test": "npm --prefix work/eco-housing-app test",
     "build": "npm --prefix work/eco-housing-app run build"
   }

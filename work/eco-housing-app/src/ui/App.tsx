@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
 import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKind, surfaceSummary, surfaceUnitsProvided, surfaceUnitsRequired } from "../domain/placementRules";
@@ -422,7 +422,10 @@ function RoomItem({ summary }: { summary: ReturnType<typeof summarizeEntries>[nu
   const item = summary.item;
   return (
     <div className="opt-item">
-      <div className="item-head"><strong>{item.friendlyName}</strong><b>x{summary.quantityPerRoom}</b></div>
+      <div className="item-head">
+        <ItemName item={item} />
+        <b>x{summary.quantityPerRoom}</b>
+      </div>
       <div className="pill-row">
         <span className="pill">+{summary.score.toFixed(2)} XP total</span>
         {summary.fromOwned > 0 && <span className="pill">acquis x{summary.fromOwned}</span>}
@@ -472,7 +475,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               const resolution = resolver.resolve(item.itemClass);
               return (
                 <tr key={item.itemClass}>
-                  <td><strong>{item.friendlyName}</strong><small>{item.typeForRoomLimit ?? "-"}</small></td>
+                  <td><ItemName item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
                   <td>{item.category}</td>
                   <td>{item.value}</td>
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
@@ -504,7 +507,7 @@ function ItemQuantityModal({ title, items, ownedItems, onChange, onClose }: { ti
     <Modal title={title} onClose={onClose}>
       <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrer les objets..." /><button onClick={() => onChange(new Map())}>Vider</button></div>
       <div className="modal-list">
-        {filtered.map((item) => <label className="quantity-row" key={item.itemClass}><span>{item.friendlyName}<small>{item.category}</small></span><input type="number" min={0} max={999} value={ownedItems.get(item.itemClass) ?? 0} onChange={(event) => {
+        {filtered.map((item) => <label className="quantity-row" key={item.itemClass}><ItemName item={item} subtitle={item.category} /><input type="number" min={0} max={999} value={ownedItems.get(item.itemClass) ?? 0} onChange={(event) => {
           const next = new Map(ownedItems);
           const quantity = Math.max(0, Number.parseInt(event.target.value, 10) || 0);
           if (quantity) next.set(item.itemClass, quantity);
@@ -530,10 +533,44 @@ function AllowedItemsModal({ model, disabledItems, onChange, onClose }: { model:
     <Modal title="Autorisations d'optimisation" onClose={onClose}>
       <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrer les objets..." /><button onClick={() => onChange(new Set())}>Tout autoriser</button></div>
       <div className="modal-list">
-        {items.map((item) => <label className="check-row modal-check" key={item.itemClass}><input type="checkbox" checked={!disabledItems.has(item.itemClass)} onChange={(event) => setAllowed(item, event.target.checked)} /><span>{item.friendlyName}<small>{item.category}</small></span></label>)}
+        {items.map((item) => <label className="check-row modal-check" key={item.itemClass}><input type="checkbox" checked={!disabledItems.has(item.itemClass)} onChange={(event) => setAllowed(item, event.target.checked)} /><ItemName item={item} subtitle={item.category} /></label>)}
       </div>
     </Modal>
   );
+}
+
+function ItemName({ item, subtitle }: { item: HousingItem; subtitle?: string | null }) {
+  return (
+    <span className="item-name">
+      <ItemIcon item={item} />
+      <span>
+        <strong>{item.friendlyName}</strong>
+        {subtitle != null && <small>{subtitle}</small>}
+      </span>
+    </span>
+  );
+}
+
+function ItemIcon({ item }: { item: HousingItem }) {
+  const label = iconLabel(item);
+  const style = { "--icon-hue": iconHue(item.itemClass) } as CSSProperties;
+  if (item.iconUrl && !item.noIcon) {
+    return <img className="item-icon" src={item.iconUrl} alt="" loading="lazy" />;
+  }
+  return <span className="item-icon item-icon-fallback" style={style} aria-hidden="true">{label}</span>;
+}
+
+function iconLabel(item: HousingItem) {
+  const words = item.friendlyName.replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function iconHue(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) % 360;
+  return String(hash);
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {

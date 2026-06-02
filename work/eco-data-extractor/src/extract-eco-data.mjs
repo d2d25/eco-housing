@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { promises as fs } from "node:fs";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -11,6 +12,8 @@ function parseArgs(argv) {
     ecoPath: null,
     modsPath: null,
     out: "outputs/eco-data.json",
+    iconsDir: null,
+    extractIcons: false,
     pretty: true,
   };
 
@@ -19,6 +22,8 @@ function parseArgs(argv) {
     if (arg === "--eco-path") args.ecoPath = argv[++i];
     else if (arg === "--mods-path") args.modsPath = argv[++i];
     else if (arg === "--out") args.out = argv[++i];
+    else if (arg === "--icons-dir") args.iconsDir = argv[++i];
+    else if (arg === "--extract-icons") args.extractIcons = true;
     else if (arg === "--compact") args.pretty = false;
     else if (arg === "--help" || arg === "-h") {
       printHelp();
@@ -45,6 +50,8 @@ function printHelp() {
 Usage:
   node src/extract-eco-data.mjs --eco-path "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Eco" --out outputs\\eco-data.json
   node src/extract-eco-data.mjs --mods-path "C:\\...\\Eco_Data\\Server\\Mods" --out outputs\\eco-data.json
+  node src/extract-eco-data.mjs --eco-path "C:\\...\\Eco" --extract-icons --out outputs\\eco-data.json
+  node src/extract-eco-data.mjs --eco-path "C:\\...\\Eco" --icons-dir outputs\\assets\\eco-icons
 `);
 }
 
@@ -608,6 +615,61 @@ function sortByClassName(entries) {
   return entries.sort((a, b) => (a.className ?? a.itemClass).localeCompare(b.className ?? b.itemClass));
 }
 
+async function addIconUrls(result, iconsDir) {
+  if (!iconsDir || !(await exists(iconsDir))) return;
+
+  const iconFiles = new Set(
+    (await fs.readdir(iconsDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".png"))
+      .map((entry) => entry.name)
+  );
+  const iconUrlFor = (className) => {
+    const fileName = `${className}.png`;
+    return iconFiles.has(fileName) ? `assets/eco-icons/${encodeURIComponent(fileName)}` : null;
+  };
+
+  let itemsWithIcons = 0;
+  for (const item of result.items) {
+    const iconUrl = item.noIcon ? null : iconUrlFor(item.className);
+    if (iconUrl) itemsWithIcons += 1;
+    item.iconUrl = iconUrl;
+  }
+
+  let housingWithIcons = 0;
+  for (const housing of result.housing) {
+    const iconUrl = housing.noIcon ? null : iconUrlFor(housing.itemClass);
+    if (iconUrl) housingWithIcons += 1;
+    housing.iconUrl = iconUrl;
+  }
+
+  result.meta.icons = {
+    source: path.resolve(iconsDir),
+    files: iconFiles.size,
+    itemsWithIcons,
+    housingWithIcons,
+  };
+}
+
+function runProcess(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "inherit" });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited with code ${code}`));
+    });
+  });
+}
+
+async function extractIcons(ecoPath, iconsDir) {
+  if (!ecoPath) {
+    throw new Error("--extract-icons requires --eco-path.");
+  }
+
+  const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "extract-icons.py");
+  await runProcess("python", [scriptPath, "--eco-path", ecoPath, "--out", iconsDir]);
+}
+
 async function extract(modsPath, options = {}) {
   const resolvedModsPath = path.resolve(modsPath);
   if (!(await exists(resolvedModsPath))) {
@@ -672,6 +734,7 @@ async function extract(modsPath, options = {}) {
   result.occupancy = result.occupancy.sort((a, b) => a.worldObjectClass.localeCompare(b.worldObjectClass));
   result.roomCategories = result.roomCategories.sort((a, b) => a.name.localeCompare(b.name));
   result.roomTiers = result.roomTiers.sort((a, b) => a.tier - b.tier);
+  await addIconUrls(result, options.iconsDir);
   result.meta.counts = {
     items: result.items.length,
     housing: result.housing.length,
@@ -692,8 +755,15 @@ async function extract(modsPath, options = {}) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const data = await extract(args.modsPath, { ecoPath: args.ecoPath });
   const outPath = path.resolve(args.out);
+  const defaultIconsDir = path.join(path.dirname(outPath), "assets", "eco-icons");
+  const iconsDir = path.resolve(args.iconsDir ?? defaultIconsDir);
+
+  if (args.extractIcons) {
+    await extractIcons(args.ecoPath, iconsDir);
+  }
+
+  const data = await extract(args.modsPath, { ecoPath: args.ecoPath, iconsDir });
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, JSON.stringify(data, null, args.pretty ? 2 : 0), "utf8");
 

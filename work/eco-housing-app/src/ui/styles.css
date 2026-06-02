@@ -142,6 +142,34 @@ input, select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid va
 .opt-item { border: 1px solid var(--line); border-radius: 8px; background: #fffefb; padding: 10px; }
 .item-head { display: flex; justify-content: space-between; gap: 8px; }
 .item-head b { color: #bf4323; }
+.item-name {
+  display: inline-grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.item-name strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.item-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  object-fit: contain;
+  background: #f7f8f2;
+  border: 1px solid var(--line);
+}
+.item-icon-fallback {
+  display: grid;
+  place-items: center;
+  color: #153c2b;
+  background: hsl(var(--icon-hue), 42%, 88%);
+  border-color: hsl(var(--icon-hue), 30%, 72%);
+  font-size: 11px;
+  font-weight: 900;
+}
 .pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .pill { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: #0f5a36; font-size: 12px; }
 .pill.warn { background: var(--warn); color: #9b4b12; }

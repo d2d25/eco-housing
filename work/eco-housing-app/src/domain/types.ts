@@ -12,6 +12,7 @@ export interface EcoItem {
   hiddenCategory?: boolean;
   notInBrowser?: boolean;
   noIcon?: boolean;
+  iconUrl?: string | null;
   source?: string;
 }
 
@@ -31,6 +32,7 @@ export interface HousingValue {
   hiddenCategory?: boolean;
   notInBrowser?: boolean;
   noIcon?: boolean;
+  iconUrl?: string | null;
   source?: string;
 }
 

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "extract": "node src/extract-eco-data.mjs",
+    "extract:icons": "python src/extract-icons.py",
     "start-app": "node ../../work/serve-outputs.mjs",
     "test": "node test/run-fixture-test.mjs && node test/run-housing-calculation-test.mjs"
   },
