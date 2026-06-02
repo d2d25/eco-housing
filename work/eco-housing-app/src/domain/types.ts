@@ -14,6 +14,9 @@ export interface EcoItem {
   notInBrowser?: boolean;
   noIcon?: boolean;
   iconUrl?: string | null;
+  variantGroupKey?: string | null;
+  variantOfItemClass?: ItemClass | null;
+  variantItemClasses?: ItemClass[];
   source?: string;
 }
 
@@ -35,6 +38,9 @@ export interface HousingValue {
   notInBrowser?: boolean;
   noIcon?: boolean;
   iconUrl?: string | null;
+  variantGroupKey?: string | null;
+  variantOfItemClass?: ItemClass | null;
+  variantItemClasses?: ItemClass[];
   source?: string;
 }
 
@@ -52,6 +58,7 @@ export interface Recipe {
   requiredSkillClass?: SkillClass | null;
   requiredSkillLevel?: number | null;
   craftingTableClass?: WorldObjectClass | null;
+  variantBaseRecipeClass?: string | null;
   products?: RecipeElement[];
   ingredients?: RecipeElement[];
   source?: string;
@@ -152,6 +159,7 @@ export interface EcoModel extends EcoData {
   itemByWorldObject: Map<WorldObjectClass, ItemClass>;
   occupancyByWorldObject: Map<WorldObjectClass, Occupancy>;
   requirementsByWorldObject: Map<WorldObjectClass, WorldObjectRequirement>;
+  variantItemsByBase: Map<ItemClass, HousingItem[]>;
 }
 
 export interface CraftRequirement {

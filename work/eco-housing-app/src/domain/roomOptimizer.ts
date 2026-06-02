@@ -144,6 +144,7 @@ export function generateCategoryPlans(
 function candidateItemsForCategory(context: OptimizationContext, category: string) {
   return context.model.housingItems
     .filter((item) => item.category === category)
+    .filter((item) => !item.variantOfItemClass)
     .filter((item) => availabilityFilter(item, context))
     .filter((item) => !context.input.disabledItems.has(item.itemClass))
     .sort((a, b) => b.value - a.value || byName(a, b))

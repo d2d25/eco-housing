@@ -661,6 +661,9 @@ function parseFile(filePath, source, modsRoot) {
         entry.body.match(/CraftingComponent\.AddRecipe\s*\(\s*tableType:\s*typeof\(([A-Za-z0-9_]+)\)/)?.[1] ??
         entry.body.match(/CraftingComponent\.AddTagProduct\s*\(\s*typeof\(([A-Za-z0-9_]+)\)/)?.[1] ??
         null,
+      variantBaseRecipeClass:
+        entry.body.match(/CraftingComponent\.AddTagProduct\s*\(\s*typeof\([A-Za-z0-9_]+\)\s*,\s*typeof\(([A-Za-z0-9_]+)\)/)?.[1] ??
+        null,
       products: [
         ...parseCraftingElements(extractAssignmentBlock(entry.body, "Products")),
         ...parseCraftingElements(extractNamedListBlock(entry.body, "items", "CraftingElement")),
@@ -790,6 +793,58 @@ function addLocalizedNames(result, translationMaps) {
   result.meta.localization = counts;
 }
 
+function firstProductItemClass(recipe) {
+  return recipe?.products?.find((product) => product.itemClass)?.itemClass ?? null;
+}
+
+function annotateVariantEntry(entry, groupKey, baseItemClass, variantItemClasses) {
+  if (!entry) return;
+  entry.variantGroupKey = groupKey;
+  entry.variantOfItemClass = (entry.itemClass ?? entry.className) === baseItemClass ? null : baseItemClass;
+  entry.variantItemClasses = variantItemClasses;
+}
+
+function addVariantGroups(result) {
+  const recipesByClass = new Map(result.recipes.map((recipe) => [recipe.className, recipe]));
+  const itemsByClass = new Map(result.items.map((item) => [item.className, item]));
+  const housingByClass = new Map(result.housing.map((item) => [item.itemClass, item]));
+  const groups = new Map();
+
+  for (const recipe of result.recipes) {
+    if (!recipe.variantBaseRecipeClass) continue;
+    const baseRecipe = recipesByClass.get(recipe.variantBaseRecipeClass);
+    const baseItemClass = firstProductItemClass(baseRecipe);
+    const variantItemClass = firstProductItemClass(recipe);
+    if (!baseItemClass || !variantItemClass || baseItemClass === variantItemClass) continue;
+
+    const group = groups.get(recipe.variantBaseRecipeClass) ?? {
+      key: recipe.variantBaseRecipeClass,
+      baseItemClass,
+      itemClasses: new Set([baseItemClass]),
+    };
+    group.itemClasses.add(variantItemClass);
+    groups.set(recipe.variantBaseRecipeClass, group);
+  }
+
+  for (const group of groups.values()) {
+    const variantItemClasses = [...group.itemClasses].sort((a, b) => {
+      if (a === group.baseItemClass) return -1;
+      if (b === group.baseItemClass) return 1;
+      return a.localeCompare(b);
+    });
+
+    for (const itemClass of variantItemClasses) {
+      annotateVariantEntry(itemsByClass.get(itemClass), group.key, group.baseItemClass, variantItemClasses);
+      annotateVariantEntry(housingByClass.get(itemClass), group.key, group.baseItemClass, variantItemClasses);
+    }
+  }
+
+  result.meta.variants = {
+    groups: groups.size,
+    items: [...groups.values()].reduce((total, group) => total + group.itemClasses.size, 0),
+  };
+}
+
 function runProcess(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "inherit" });
@@ -875,6 +930,7 @@ async function extract(modsPath, options = {}) {
   result.occupancy = result.occupancy.sort((a, b) => a.worldObjectClass.localeCompare(b.worldObjectClass));
   result.roomCategories = result.roomCategories.sort((a, b) => a.name.localeCompare(b.name));
   result.roomTiers = result.roomTiers.sort((a, b) => a.tier - b.tier);
+  addVariantGroups(result);
   addLocalizedNames(result, gameTranslations);
   await addIconUrls(result, options.iconsDir);
   result.meta.counts = {

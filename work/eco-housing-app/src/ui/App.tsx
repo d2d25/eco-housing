@@ -460,7 +460,7 @@ function RoomOptimizationResults({ t, language, model, optimization, width, dept
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
-              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} summary={summary} />) : <div className="empty">{t("noItemWithFilters")}</div>}
+              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} />) : <div className="empty">{t("noItemWithFilters")}</div>}
             </div>
           </article>
         ))}
@@ -477,8 +477,9 @@ function OptimizationError({ t, message }: { t: Translator; message: string }) {
   return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
 }
 
-function RoomItem({ t, language, summary }: { t: Translator; language: Language; summary: ReturnType<typeof summarizeEntries>[number] }) {
+function RoomItem({ t, language, model, summary }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number] }) {
   const item = summary.item;
+  const variants = variantAlternatives(model, item);
   return (
     <div className="opt-item">
       <div className="item-head">
@@ -500,6 +501,7 @@ function RoomItem({ t, language, summary }: { t: Translator; language: Language;
         {item.requirements?.requiredRoomVolume != null && <span className="pill">{t("requiredM3")} {item.requirements.requiredRoomVolume}</span>}
         {item.requirements?.requiredRoomMaterialTier != null && <span className="pill">T{item.requirements.requiredRoomMaterialTier}</span>}
       </div>
+      {variants.length > 0 && <VariantDetails t={t} language={language} variants={variants} />}
     </div>
   );
 }
@@ -512,6 +514,7 @@ function ObjectsPage({ model, t, language, config, update, selectedSkills }: { m
   const craftSkills = craftSkillOptions(model);
   const query = config.objectSearch.trim().toLowerCase();
   const items = model.housingItems
+    .filter((item) => !item.variantOfItemClass)
     .filter((item) => !config.objectCategories.length || config.objectCategories.includes(item.category))
     .filter((item) => {
       if (!config.objectCraftSkills.length) return true;
@@ -522,7 +525,7 @@ function ObjectsPage({ model, t, language, config, update, selectedSkills }: { m
       const resolution = resolver.resolve(item.itemClass);
       return resolution.craftable;
     })
-    .filter((item) => !query || [displayItemName(item, language), item.friendlyName, displayCategoryName(model, item.category, language), item.category, item.typeForRoomLimit, item.source].join(" ").toLowerCase().includes(query))
+    .filter((item) => !query || objectSearchText(model, item, language).includes(query))
     .sort((a, b) => sortObjects(a, b, config.objectSort));
 
   useEffect(() => {
@@ -648,9 +651,13 @@ function ObjectsPage({ model, t, language, config, update, selectedSkills }: { m
           </thead>
           <tbody>
             {items.map((item) => {
+              const variants = variantAlternatives(model, item);
               return (
                 <tr key={item.itemClass}>
-                  <td><ItemName language={language} item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
+                  <td>
+                    <ItemName language={language} item={item} subtitle={item.typeForRoomLimit ?? "-"} />
+                    {variants.length > 0 && <VariantDetails t={t} language={language} variants={variants} />}
+                  </td>
                   <td><CategoryBadge t={t} language={language} model={model} category={item.category} /></td>
                   <td>{item.value}</td>
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
@@ -688,6 +695,36 @@ function requiredVolumeForSort(item: HousingItem) {
 
 function floorAreaForSort(item: HousingItem) {
   return itemFootprint(item).floorArea;
+}
+
+function objectSearchText(model: EcoModel, item: HousingItem, language: Language) {
+  const variants = variantAlternatives(model, item);
+  return [
+    displayItemName(item, language),
+    item.friendlyName,
+    displayCategoryName(model, item.category, language),
+    item.category,
+    item.typeForRoomLimit,
+    item.source,
+    ...variants.flatMap((variant) => [displayItemName(variant, language), variant.friendlyName]),
+  ].join(" ").toLowerCase();
+}
+
+function variantAlternatives(model: EcoModel, item: HousingItem) {
+  return (model.variantItemsByBase.get(item.itemClass) ?? []).filter((variant) => variant.itemClass !== item.itemClass);
+}
+
+function VariantDetails({ t, language, variants }: { t: Translator; language: Language; variants: HousingItem[] }) {
+  return (
+    <details className="variant-details">
+      <summary>{variants.length} {t("variants")}</summary>
+      <div className="variant-list">
+        {variants.map((variant) => (
+          <ItemName key={variant.itemClass} language={language} item={variant} />
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function localizedName(entry: { localizedName?: Record<string, string>; friendlyName?: string; name?: string }, language: Language) {

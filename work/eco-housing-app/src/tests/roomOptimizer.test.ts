@@ -98,6 +98,17 @@ describe("Eco housing reference calculations", () => {
     expect(fireplace.floorArea).toBe(3);
   });
 
+  test("groups Eco tag-product variants around their base item", () => {
+    const base = housing("Ashlar Stone Fireplace");
+    const basalt = housing("Ashlar Basalt Fireplace");
+    const variants = model.variantItemsByBase.get(base.itemClass) ?? [];
+
+    expect(base.variantOfItemClass).toBeNull();
+    expect(basalt.variantOfItemClass).toBe(base.itemClass);
+    expect(variants.map((item) => item.friendlyName)).toContain("Ashlar Basalt Fireplace");
+    expect(variants.map((item) => item.friendlyName)).toContain("Ashlar Stone Fireplace");
+  });
+
   test("treats rugs and petals with the current placement rules", () => {
     const rug = housing("Rug Large");
     expect(hasSurfaceTag(rug, "Rug")).toBe(true);
@@ -123,6 +134,23 @@ describe("Room optimizer behavior", () => {
 
   test("blocks objects that cannot fit in the room footprint", () => {
     const result = roomOptimization(model, baseInput({ roomType: "Living Room", tier: 5, width: 2, depth: 2, height: 3 }));
+    expect(result.entries.some((entry) => entry.item.friendlyName === "Ashlar Basalt Fireplace")).toBe(false);
+  });
+
+  test("uses the base item for variant groups in room optimization", () => {
+    const allowed = new Set(model.housingItems
+      .filter((item) => !["Ashlar Stone Fireplace", "Ashlar Basalt Fireplace"].includes(item.friendlyName))
+      .map((item) => item.itemClass));
+    const result = roomOptimization(model, baseInput({
+      roomType: "Living Room",
+      tier: 5,
+      width: 6,
+      depth: 5,
+      height: 3,
+      disabledItems: allowed,
+    }));
+
+    expect(result.entries.some((entry) => entry.item.friendlyName === "Ashlar Stone Fireplace")).toBe(true);
     expect(result.entries.some((entry) => entry.item.friendlyName === "Ashlar Basalt Fireplace")).toBe(false);
   });
 

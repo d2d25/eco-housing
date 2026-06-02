@@ -62,6 +62,15 @@ export function buildModel(data: EcoData): EcoModel {
         craftableWithoutSkill: recipes.length > 0 && directSkillClasses.length === 0,
       };
     });
+  const housingByClass = new Map(housingItems.map((item) => [item.itemClass, item]));
+  const variantItemsByBase = new Map<string, HousingItem[]>();
+  for (const item of housingItems) {
+    if (!item.variantGroupKey || item.variantOfItemClass) continue;
+    const variants = (item.variantItemClasses ?? [])
+      .map((itemClass) => housingByClass.get(itemClass))
+      .filter((variant): variant is HousingItem => Boolean(variant));
+    if (variants.length > 1) variantItemsByBase.set(item.itemClass, variants);
+  }
 
   return {
     ...data,
@@ -76,6 +85,7 @@ export function buildModel(data: EcoData): EcoModel {
     itemByWorldObject,
     occupancyByWorldObject,
     requirementsByWorldObject,
+    variantItemsByBase,
   };
 }
 
