@@ -346,6 +346,14 @@ function parseBool(raw) {
   return null;
 }
 
+function parseRoomCategoryColor(body) {
+  const hex = body.match(/Color\s*=\s*new\s+Color\s*\(\s*"([0-9A-Fa-f]{6})"\s*\)/m)?.[1];
+  if (hex) return { hex: `#${hex.toUpperCase()}`, source: "HousingValues.cs" };
+
+  const named = body.match(/Color\s*=\s*(EcoColors\.[A-Za-z0-9_]+)/m)?.[1];
+  return { hex: null, source: named ?? null };
+}
+
 function parseRoomCategories(source) {
   const categories = [];
   const regex = /new\s+RoomCategory\s*\(\s*\)/g;
@@ -356,6 +364,7 @@ function parseRoomCategories(source) {
 
     const getPrimitive = (key) => body.match(new RegExp(`${key}\\s*=\\s*([^,\\n\\r\\}]+)`, "m"))?.[1]?.trim();
     const getStringList = (key) => body.match(new RegExp(`${key}\\s*=\\s*new\\[\\]\\s*\\{([^\\}]*)\\}`, "m"))?.[1];
+    const color = parseRoomCategoryColor(body);
     const perCategory = {};
     const perCategoryStart = body.indexOf("MaxSupportPercentOfPrimaryPerCategory");
     const perCategoryBody = perCategoryStart >= 0 ? extractBalancedObject(body, perCategoryStart) : null;
@@ -369,6 +378,8 @@ function parseRoomCategories(source) {
 
     categories.push({
       name: displayName,
+      colorHex: color.hex,
+      colorSource: color.source,
       canBeRoomCategory: parseBool(getPrimitive("CanBeRoomCategory")) ?? true,
       canAutoChooseCategory: parseBool(getPrimitive("CanAutoChooseCategory")) ?? true,
       supportForAnyRoomType: parseBool(getPrimitive("SupportForAnyRoomType")) ?? false,

@@ -68,6 +68,8 @@ export interface Skill {
 
 export interface RoomCategory {
   name: string;
+  colorHex?: string | null;
+  colorSource?: string | null;
   canBeRoomCategory: boolean;
   canAutoChooseCategory?: boolean;
   supportForAnyRoomType?: boolean;

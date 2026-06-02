@@ -199,7 +199,14 @@ function RoomPage(props: {
   return (
     <section className="room-page">
       <div className="page-actions">
-        <span>{optimization ? `categories compatibles: ${optimization.groups.map((group) => group.category).join(", ")}` : "calcul en cours"}</span>
+        <span className="compatible-categories">
+          {optimization ? (
+            <>
+              <span>categories compatibles:</span>
+              {optimization.groups.map((group) => <CategoryBadge key={group.category} model={model} category={group.category} />)}
+            </>
+          ) : "calcul en cours"}
+        </span>
         <button disabled={!optimization} onClick={() => optimization && exportIssueJson(model, config, selectedSkills, ownedItems, disabledItems, optimization)}>Export</button>
         <button onClick={() => importInputRef.current?.click()}>Import</button>
         <input
@@ -236,7 +243,7 @@ function RoomPage(props: {
       {optimizationState.status === "loading" && <OptimizationSpinner />}
       {optimizationState.status === "error" && <OptimizationError message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
+        <RoomOptimizationResults model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
       )}
     </section>
   );
@@ -392,7 +399,7 @@ function readClassArray(value: unknown, field: string) {
   return readObjectArray(value, field).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`));
 }
 
-function RoomOptimizationResults({ optimization, width, depth, height, roomVolume }: { optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
+function RoomOptimizationResults({ model, optimization, width, depth, height, roomVolume }: { model: EcoModel; optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
   const objectFloor = estimateObjectFloor(optimization.entries);
@@ -423,7 +430,7 @@ function RoomOptimizationResults({ optimization, width, depth, height, roomVolum
         {optimization.groups.map((group) => (
           <article className="opt-group" key={group.category}>
             <div className="opt-title">
-              <div><span>{group.category}</span><h3>{group.role}</h3>{group.supportCap != null && <small>plafond {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
+              <div><CategoryBadge model={model} category={group.category} /><h3>{group.role}</h3>{group.supportCap != null && <small>plafond {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
@@ -473,6 +480,7 @@ function RoomItem({ summary }: { summary: ReturnType<typeof summarizeEntries>[nu
 
 function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoModel; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
   const [openFilter, setOpenFilter] = useState<{ key: "category" | "craft"; left: number; top: number } | null>(null);
+  const pageRef = useRef<HTMLElement | null>(null);
   const resolver = useMemo(() => createCraftResolver(model, selectedSkills), [model, selectedSkills]);
   const categories = [...new Set(model.housingItems.map((item) => item.category))].sort();
   const craftSkills = craftSkillOptions(model);
@@ -491,6 +499,17 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
     .filter((item) => !query || [item.friendlyName, item.category, item.typeForRoomLimit, item.source].join(" ").toLowerCase().includes(query))
     .sort((a, b) => sortObjects(a, b, config.objectSort));
 
+  useEffect(() => {
+    if (!openFilter) return;
+    function closeOnOutsideClick(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && pageRef.current?.contains(target)) return;
+      setOpenFilter(null);
+    }
+    window.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => window.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [openFilter]);
+
   function toggleColumnFilter(key: "category" | "craft", event: MouseEvent<HTMLButtonElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const width = 280;
@@ -501,7 +520,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
   }
 
   return (
-    <section className="objects-page">
+    <section className="objects-page" ref={pageRef}>
       <div className="table-wrap">
         <table>
           <thead>
@@ -534,7 +553,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
                         checked={config.objectCategories.includes(category)}
                         onChange={() => update({ objectCategories: toggleFilterValue(config.objectCategories, category) })}
                       />
-                      <span>{category}</span>
+                      <CategoryBadge model={model} category={category} />
                     </label>
                   ))}
                 </FilterColumn>
@@ -604,7 +623,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               return (
                 <tr key={item.itemClass}>
                   <td><ItemName item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
-                  <td>{item.category}</td>
+                  <td><CategoryBadge model={model} category={item.category} /></td>
                   <td>{item.value}</td>
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
                   <td>{formatFootprint(item)}</td>
@@ -641,6 +660,24 @@ function requiredVolumeForSort(item: HousingItem) {
 
 function floorAreaForSort(item: HousingItem) {
   return itemFootprint(item).floorArea;
+}
+
+function CategoryBadge({ model, category }: { model: EcoModel; category: string }) {
+  const roomCategory = model.roomCategoryByName.get(category);
+  const color = roomCategory?.colorHex ?? fallbackCategoryColor(category);
+  const source = roomCategory?.colorHex ? "couleur Eco" : roomCategory?.colorSource ? `${roomCategory.colorSource}, couleur approx` : "couleur app";
+  return (
+    <span className="category-badge" style={{ "--category-color": color } as CSSProperties} title={`${category} - ${source}`}>
+      <span aria-hidden="true" />
+      {category}
+    </span>
+  );
+}
+
+function fallbackCategoryColor(value: string) {
+  let hash = 0;
+  for (const char of value) hash = (hash * 31 + char.charCodeAt(0)) % 360;
+  return `hsl(${hash}, 54%, 46%)`;
 }
 
 function craftSkillOptions(model: EcoModel) {

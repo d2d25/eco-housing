@@ -1,7 +1,7 @@
 {
   "meta": {
     "extractorVersion": "0.1.0",
-    "extractedAt": "2026-06-02T11:58:45.382Z",
+    "extractedAt": "2026-06-02T12:12:05.008Z",
     "modsPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Eco\\Eco_Data\\Server\\Mods",
     "fileCount": 2484,
     "marketplaceBlueprintSource": "Eco_Data/StreamingAssets/aa/catalog.bin: Assets/Art/IAP",
@@ -104205,6 +104205,8 @@
   "roomCategories": [
     {
       "name": "Bathroom",
+      "colorHex": "#A6E1EA",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
@@ -104220,6 +104222,8 @@
     },
     {
       "name": "Bedroom",
+      "colorHex": "#00B4A5",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
@@ -104238,6 +104242,8 @@
     },
     {
       "name": "Cultural",
+      "colorHex": null,
+      "colorSource": "EcoColors.Culture",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
@@ -104257,6 +104263,8 @@
     },
     {
       "name": "Decoration",
+      "colorHex": "#6BD6B4",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": false,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": true,
@@ -104270,6 +104278,8 @@
     },
     {
       "name": "Industrial",
+      "colorHex": "#A300B4",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
@@ -104283,6 +104293,8 @@
     },
     {
       "name": "Kitchen",
+      "colorHex": "#4C7BD9",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
@@ -104300,6 +104312,8 @@
     },
     {
       "name": "Lighting",
+      "colorHex": "#FFD6B4",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": false,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": true,
@@ -104313,6 +104327,8 @@
     },
     {
       "name": "Living Room",
+      "colorHex": "#DB48C5",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
@@ -104331,6 +104347,8 @@
     },
     {
       "name": "Outdoor",
+      "colorHex": "#68E897",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": true,
       "canAutoChooseCategory": false,
       "supportForAnyRoomType": false,
@@ -104347,6 +104365,8 @@
     },
     {
       "name": "Seating",
+      "colorHex": "#E5956E",
+      "colorSource": "HousingValues.cs",
       "canBeRoomCategory": false,
       "canAutoChooseCategory": true,
       "supportForAnyRoomType": false,
