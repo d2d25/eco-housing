@@ -80,4 +80,6 @@ Equivalent configuration:
 
 ## Eco Data Note
 
-`outputs/eco-data.json` contains data extracted from a local Eco installation. This is practical for a private beta, but redistribution rights should be checked before a broad public release.
+`outputs/eco-data.json` and extracted Eco icons/assets are generated from a local Eco installation. They are included for beta testing convenience, but they are not owned by this project and are not covered by any project source-code license.
+
+See [NOTICE.md](./NOTICE.md) before reusing, redistributing, or relicensing generated Eco data or assets.

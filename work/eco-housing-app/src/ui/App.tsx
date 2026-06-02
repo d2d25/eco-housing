@@ -259,48 +259,59 @@ function RoomPage(props: {
         <button onClick={props.onOpenAllowed}>{t("permissions")}</button>
       </div>
 
-      <section className="setup-panel">
-        <div className="segmented">
-          <span>{t("roomType")}</span>
-          <div>{playableRooms.map((room) => <button key={room.name} className={config.roomType === room.name ? "active" : ""} onClick={() => update({ roomType: room.name })}>{displayCategoryName(model, room.name, language)}</button>)}</div>
-        </div>
-        {usesMaterialTier && (
-          <div className="segmented">
-            <span>{t("roomTier")}</span>
-            <div>{tiers.map((tier) => <button key={tier.tier} className={config.roomTier === tier.tier ? "active" : ""} onClick={() => update({ roomTier: tier.tier })}>T{tier.tier}<small>{tier.softCap}/{tier.hardCap}</small></button>)}</div>
+      <section className="room-top-panel">
+        <section className="setup-panel">
+          <div className="segmented compact">
+            <span>{t("roomType")}</span>
+            <div>{playableRooms.map((room) => <button key={room.name} className={config.roomType === room.name ? "active" : ""} onClick={() => update({ roomType: room.name })}>{displayCategoryName(model, room.name, language)}</button>)}</div>
           </div>
-        )}
-        {usesRoomSize && (
-          <details className="advanced-room-options">
-            <summary>{t("roomSizeOptions")}</summary>
-            <div className="size-mode-grid">
-              <label className="radio-card">
-                <input type="radio" checked={config.roomSizeMode === "auto"} onChange={() => update({ roomSizeMode: "auto" })} />
-                <span><strong>{t("autoRoomSize")}</strong><small>{t("autoRoomSizeHelp")}</small></span>
-              </label>
-              <label className="radio-card">
-                <input type="radio" checked={config.roomSizeMode === "materials"} onChange={() => update({ roomSizeMode: "materials" })} />
-                <span><strong>{t("materialBudgetMode")}</strong><small>{t("materialBudgetModeHelp")}</small></span>
-              </label>
-              <label className="radio-card">
-                <input type="radio" checked={config.roomSizeMode === "manual"} onChange={() => update({ roomSizeMode: "manual" })} />
-                <span><strong>{t("manualRoomSize")}</strong><small>{t("manualRoomSizeHelp")}</small></span>
-              </label>
+          {usesMaterialTier && (
+            <div className="segmented compact tier-buttons">
+              <span>{t("roomTier")}</span>
+              <div>{tiers.map((tier) => <button key={tier.tier} className={config.roomTier === tier.tier ? "active" : ""} onClick={() => update({ roomTier: tier.tier })}>T{tier.tier}</button>)}</div>
             </div>
-            {config.roomSizeMode === "materials" && (
-              <div className="field-grid one">
-                <NumberField label={t("materialBudget")} value={config.materialBudget} min={1} max={2000} onChange={(materialBudget) => update({ materialBudget })} />
+          )}
+          {usesRoomSize && (
+            <details className="advanced-room-options">
+              <summary>{t("roomSizeOptions")}</summary>
+              <div className="size-mode-grid">
+                <label className="radio-card">
+                  <input type="radio" checked={config.roomSizeMode === "auto"} onChange={() => update({ roomSizeMode: "auto" })} />
+                  <span><strong>{t("autoRoomSize")}</strong><small>{t("autoRoomSizeHelp")}</small></span>
+                </label>
+                <label className="radio-card">
+                  <input type="radio" checked={config.roomSizeMode === "materials"} onChange={() => update({ roomSizeMode: "materials" })} />
+                  <span><strong>{t("materialBudgetMode")}</strong><small>{t("materialBudgetModeHelp")}</small></span>
+                </label>
+                <label className="radio-card">
+                  <input type="radio" checked={config.roomSizeMode === "manual"} onChange={() => update({ roomSizeMode: "manual" })} />
+                  <span><strong>{t("manualRoomSize")}</strong><small>{t("manualRoomSizeHelp")}</small></span>
+                </label>
               </div>
-            )}
-            {config.roomSizeMode === "manual" && (
-              <div className="field-grid">
-                <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
-                <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
-                <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
-              </div>
-            )}
-          </details>
-        )}
+              {config.roomSizeMode === "materials" && (
+                <div className="field-grid one">
+                  <NumberField label={t("materialBudget")} value={config.materialBudget} min={1} max={2000} onChange={(materialBudget) => update({ materialBudget })} />
+                </div>
+              )}
+              {config.roomSizeMode === "manual" && (
+                <div className="field-grid">
+                  <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
+                  <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
+                  <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
+                </div>
+              )}
+            </details>
+          )}
+        </section>
+        <RoomSummaryPanel
+          t={t}
+          status={optimizationState.status}
+          optimization={optimizationState.status === "ready" ? optimizationState.optimization : null}
+          width={resultWidth}
+          depth={resultDepth}
+          height={resultHeight}
+          usesRoomSize={usesRoomSize}
+        />
       </section>
 
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
@@ -308,6 +319,37 @@ function RoomPage(props: {
       {optimizationState.status === "ready" && (
         <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} devMode={config.devMode} />
       )}
+    </section>
+  );
+}
+
+function RoomSummaryPanel({
+  t,
+  status,
+  optimization,
+  width,
+  depth,
+  height,
+  usesRoomSize,
+}: {
+  t: Translator;
+  status: "idle" | "loading" | "ready" | "error";
+  optimization: RoomOptimization | null;
+  width: number;
+  depth: number;
+  height: number;
+  usesRoomSize: boolean;
+}) {
+  return (
+    <section className="room-summary-panel">
+      <div className="summary-tile main">
+        <span>{t("usefulRoomTotal")}</span>
+        <strong>{optimization ? optimization.score.capped.toFixed(1) : status === "loading" ? "..." : "-"}</strong>
+      </div>
+      <div className="summary-tile">
+        <span>{usesRoomSize ? t("roomSize") : t("outdoorNoSize")}</span>
+        <strong>{usesRoomSize ? `${width}x${depth}x${height}` : "-"}</strong>
+      </div>
     </section>
   );
 }
@@ -501,24 +543,22 @@ function RoomOptimizationResults({
 
   return (
     <>
-      <section className="score-grid">
-        <div className="score-card primary"><span>{t("usefulRoomTotal")}</span><strong>{score.capped.toFixed(1)}</strong><small>{score.raw.toFixed(1)} {t("raw")} | {score.afterSupportCaps.toFixed(1)} {t("beforeTier")}</small></div>
-        <div className="score-card"><span>{score.tier ? t("activeTier") : t("materialTierNotUsed")}</span>{score.tier ? <><strong>T{score.tier.tier}</strong><small>{t("soft")} {score.tier.softCap} | {t("hard")} {score.tier.hardCap} | {t("return")} {Math.round(score.tier.diminishingReturnPercent * 100)}%</small></> : <><strong>-</strong><small>{t("outdoorNoMaterialCap")}</small></>}</div>
-      </section>
-
-      <section className="trace-grid">
-        <Metric label={t("rawObjects")} value={score.raw} />
-        <Metric label={t("afterDuplicates")} value={score.afterDiminishing} delta={-score.duplicateLoss} />
-        <Metric label={t("afterSupportCaps")} value={score.afterSupportCaps} delta={-score.supportCapLoss} />
-        <Metric label={t("afterTier")} value={score.capped} delta={-score.capLoss} />
-      </section>
-
-      <section className="fit-grid">
-        {usesRoomSize ? <div><strong>{width}x{depth}x{height}</strong><span>{t("roomSize")}</span></div> : <div><strong>-</strong><span>{t("outdoorNoSize")}</span></div>}
-        {usesRoomSize ? <div className={objectFloor > width * depth ? "bad" : ""}><strong>{objectFloor}/{width * depth}</strong><span>{t("objectFloor")}</span></div> : <div><strong>{objectFloor}</strong><span>{t("objectFloor")}</span></div>}
-        {usesRoomSize ? <div className={requiredVolume > roomVolume ? "bad" : ""}><strong>{requiredVolume}/{roomVolume}</strong><span>{t("requiredVolumeVsRoom")}</span></div> : <div><strong>{requiredVolume}</strong><span>{t("requiredVolume")}</span></div>}
-        <div className={surface.used > surface.capacity ? "bad" : ""}><strong>{surface.used}/{surface.capacity}</strong><span>{t("placedSurfaceVsAvailable")}</span></div>
-      </section>
+      {devMode && (
+        <section className="debug-room-panel">
+          <div className="score-card debug-tier"><span>{score.tier ? t("activeTier") : t("materialTierNotUsed")}</span>{score.tier ? <><strong>T{score.tier.tier}</strong><small>{t("soft")} {score.tier.softCap} | {t("hard")} {score.tier.hardCap} | {t("return")} {Math.round(score.tier.diminishingReturnPercent * 100)}%</small></> : <><strong>-</strong><small>{t("outdoorNoMaterialCap")}</small></>}</div>
+          <section className="fit-grid">
+            {usesRoomSize ? <div className={objectFloor > width * depth ? "bad" : ""}><strong>{objectFloor}/{width * depth}</strong><span>{t("objectFloor")}</span></div> : <div><strong>{objectFloor}</strong><span>{t("objectFloor")}</span></div>}
+            {usesRoomSize ? <div className={requiredVolume > roomVolume ? "bad" : ""}><strong>{requiredVolume}/{roomVolume}</strong><span>{t("requiredVolumeVsRoom")}</span></div> : <div><strong>{requiredVolume}</strong><span>{t("requiredVolume")}</span></div>}
+            <div className={surface.used > surface.capacity ? "bad" : ""}><strong>{surface.used}/{surface.capacity}</strong><span>{t("placedSurfaceVsAvailable")}</span></div>
+          </section>
+          <div className="trace-grid">
+            <Metric label={t("rawObjects")} value={score.raw} />
+            <Metric label={t("afterDuplicates")} value={score.afterDiminishing} delta={-score.duplicateLoss} />
+            <Metric label={t("afterSupportCaps")} value={score.afterSupportCaps} delta={-score.supportCapLoss} />
+            <Metric label={t("afterTier")} value={score.capped} delta={-score.capLoss} />
+          </div>
+        </section>
+      )}
 
       <section className="optimizer-grid">
         {optimization.groups.map((group) => (
@@ -555,7 +595,7 @@ function RoomItem({ t, language, model, summary, devMode }: { t: Translator; lan
           <ItemName language={language} item={item} />
           <b>x{summary.quantityPerRoom}</b>
         </span>
-        <span className="room-item-metrics">
+        <span className={`room-item-metrics${devMode ? " has-give" : ""}`}>
           <MetricBadge label="XP" value={summary.score.toFixed(2)} />
           <MetricBadge label={t("floorShort")} value={String(summary.totalFloor)} />
           <MetricBadge label={t("m3Short")} value={String(summary.totalRequiredVolume)} />
