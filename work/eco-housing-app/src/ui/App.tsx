@@ -31,6 +31,12 @@ export function App() {
 
   const selectedSkills = useMemo(() => new Set(config.selectedSkills), [config.selectedSkills]);
   const disabledItems = useMemo(() => new Set(config.disabledItems), [config.disabledItems]);
+  const availableSkills = useMemo(() => (model ? model.skills.filter((skill) => skill.isSpecialty) : []), [model]);
+  const availableHousingCount = useMemo(() => {
+    if (!model) return 0;
+    const resolver = createCraftResolver(model, selectedSkills);
+    return model.housingItems.filter((item) => resolver.resolve(item.itemClass).craftable).length;
+  }, [model, selectedSkills]);
 
   function update(partial: Partial<AppConfig>) {
     setConfig((current) => ({ ...current, ...partial }));
@@ -51,9 +57,6 @@ export function App() {
   if (error) return <main className="boot-error">{error}</main>;
   if (!model) return <main className="boot-error">Chargement des donnees Eco...</main>;
 
-  const selectedCount = config.selectedSkills.length;
-  const ownedCount = [...ownedItems.values()].reduce((total, value) => total + value, 0);
-
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -68,7 +71,7 @@ export function App() {
           <button className={config.activeView === "room" ? "active" : ""} onClick={() => update({ activeView: "room" })}>Piece</button>
           <button className={config.activeView === "objects" ? "active" : ""} onClick={() => update({ activeView: "objects" })}>Objets</button>
         </nav>
-        <SkillPanel model={model} selectedSkills={selectedSkills} onChange={(next) => update({ selectedSkills: [...next] })} />
+        <SkillPanel model={model} availableSkills={availableSkills} selectedSkills={selectedSkills} onChange={(next) => update({ selectedSkills: [...next] })} />
       </aside>
 
       <main className="app">
@@ -79,8 +82,7 @@ export function App() {
           </div>
           <div className="stats">
             <div><strong>{model.housingItems.length}</strong><span>housing</span></div>
-            <div><strong>{selectedCount}</strong><span>metiers</span></div>
-            <div><strong>{ownedCount}</strong><span>acquis</span></div>
+            <div><strong>{availableHousingCount}</strong><span>objets dispo</span></div>
           </div>
         </header>
 
@@ -107,16 +109,26 @@ export function App() {
   );
 }
 
-function SkillPanel({ model, selectedSkills, onChange }: { model: EcoModel; selectedSkills: Set<SkillClass>; onChange: (next: Set<SkillClass>) => void }) {
+function SkillPanel({
+  model,
+  availableSkills,
+  selectedSkills,
+  onChange,
+}: {
+  model: EcoModel;
+  availableSkills: typeof model.skills;
+  selectedSkills: Set<SkillClass>;
+  onChange: (next: Set<SkillClass>) => void;
+}) {
   const groups = useMemo(() => {
     const byGroup = new Map<string, typeof model.skills>();
-    for (const skill of model.skills.filter((skill) => skill.isSpecialty)) {
+    for (const skill of availableSkills) {
       const group = skill.professionGroup ?? "Autres";
       if (!byGroup.has(group)) byGroup.set(group, []);
       byGroup.get(group)!.push(skill);
     }
     return [...byGroup.entries()].sort(([a], [b]) => professionOrder(a) - professionOrder(b));
-  }, [model]);
+  }, [availableSkills, model.skills]);
 
   function toggle(skillClass: SkillClass) {
     const next = new Set(selectedSkills);
@@ -130,12 +142,12 @@ function SkillPanel({ model, selectedSkills, onChange }: { model: EcoModel; sele
       <div className="panel-head">
         <h3>Metiers</h3>
         <div className="button-row">
-          <button onClick={() => onChange(new Set(model.skills.filter((skill) => skill.isSpecialty).map((skill) => skill.className)))}>Tout</button>
+          <button onClick={() => onChange(new Set(availableSkills.map((skill) => skill.className)))}>Tout</button>
           <button onClick={() => onChange(new Set())}>Reset</button>
         </div>
       </div>
       <div className="skill-list">
-        {groups.map(([group, skills]) => (
+        {groups.length ? groups.map(([group, skills]) => (
           <details key={group} open>
             <summary>{group}<span>{skills.filter((skill) => selectedSkills.has(skill.className)).length}/{skills.length}</span></summary>
             {skills.map((skill) => (
@@ -145,7 +157,7 @@ function SkillPanel({ model, selectedSkills, onChange }: { model: EcoModel; sele
               </label>
             ))}
           </details>
-        ))}
+        )) : <div className="empty">Aucun metier disponible.</div>}
       </div>
     </section>
   );
