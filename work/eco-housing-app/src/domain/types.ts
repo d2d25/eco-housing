@@ -62,6 +62,7 @@ export interface Skill {
   isProfession?: boolean;
   professionGroup?: string | null;
   parentSkillClass?: SkillClass | null;
+  iconUrl?: string | null;
   source?: string;
 }
 

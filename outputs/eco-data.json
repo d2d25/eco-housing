@@ -1,7 +1,7 @@
 {
   "meta": {
     "extractorVersion": "0.1.0",
-    "extractedAt": "2026-06-02T00:40:15.690Z",
+    "extractedAt": "2026-06-02T11:58:45.382Z",
     "modsPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Eco\\Eco_Data\\Server\\Mods",
     "fileCount": 2484,
     "marketplaceBlueprintSource": "Eco_Data/StreamingAssets/aa/catalog.bin: Assets/Art/IAP",
@@ -9,7 +9,8 @@
       "source": "C:\\Users\\denez\\Documents\\Codex\\2026-05-31\\ok-sur-le-jeu-eco-je\\outputs\\assets\\eco-icons",
       "files": 4349,
       "itemsWithIcons": 843,
-      "housingWithIcons": 456
+      "housingWithIcons": 456,
+      "skillsWithIcons": 43
     },
     "counts": {
       "items": 901,
@@ -65440,7 +65441,8 @@
       "isProfession": false,
       "professionGroup": "Chef",
       "parentSkillClass": "ChefSkill",
-      "source": "__core__/AutoGen/Tech/AdvancedBaking.cs"
+      "source": "__core__/AutoGen/Tech/AdvancedBaking.cs",
+      "iconUrl": "assets/eco-icons/AdvancedBakingSkill.png"
     },
     {
       "className": "AdvancedCookingSkill",
@@ -65450,7 +65452,8 @@
       "isProfession": false,
       "professionGroup": "Chef",
       "parentSkillClass": "ChefSkill",
-      "source": "__core__/AutoGen/Tech/AdvancedCooking.cs"
+      "source": "__core__/AutoGen/Tech/AdvancedCooking.cs",
+      "iconUrl": "assets/eco-icons/AdvancedCookingSkill.png"
     },
     {
       "className": "AdvancedMasonrySkill",
@@ -65460,7 +65463,8 @@
       "isProfession": false,
       "professionGroup": "Mason",
       "parentSkillClass": "MasonSkill",
-      "source": "__core__/AutoGen/Tech/AdvancedMasonry.cs"
+      "source": "__core__/AutoGen/Tech/AdvancedMasonry.cs",
+      "iconUrl": "assets/eco-icons/AdvancedMasonrySkill.png"
     },
     {
       "className": "AdvancedSmeltingSkill",
@@ -65470,7 +65474,8 @@
       "isProfession": false,
       "professionGroup": "Smith",
       "parentSkillClass": "SmithSkill",
-      "source": "__core__/AutoGen/Tech/AdvancedSmelting.cs"
+      "source": "__core__/AutoGen/Tech/AdvancedSmelting.cs",
+      "iconUrl": "assets/eco-icons/AdvancedSmeltingSkill.png"
     },
     {
       "className": "BakingSkill",
@@ -65480,7 +65485,8 @@
       "isProfession": false,
       "professionGroup": "Chef",
       "parentSkillClass": "ChefSkill",
-      "source": "__core__/AutoGen/Tech/Baking.cs"
+      "source": "__core__/AutoGen/Tech/Baking.cs",
+      "iconUrl": "assets/eco-icons/BakingSkill.png"
     },
     {
       "className": "BasicEngineeringSkill",
@@ -65490,7 +65496,8 @@
       "isProfession": false,
       "professionGroup": "Engineer",
       "parentSkillClass": "EngineerSkill",
-      "source": "__core__/AutoGen/Tech/BasicEngineering.cs"
+      "source": "__core__/AutoGen/Tech/BasicEngineering.cs",
+      "iconUrl": "assets/eco-icons/BasicEngineeringSkill.png"
     },
     {
       "className": "BlacksmithSkill",
@@ -65500,7 +65507,8 @@
       "isProfession": false,
       "professionGroup": "Smith",
       "parentSkillClass": "SmithSkill",
-      "source": "__core__/AutoGen/Tech/Blacksmith.cs"
+      "source": "__core__/AutoGen/Tech/Blacksmith.cs",
+      "iconUrl": "assets/eco-icons/BlacksmithSkill.png"
     },
     {
       "className": "ButcherySkill",
@@ -65510,7 +65518,8 @@
       "isProfession": false,
       "professionGroup": "Hunter",
       "parentSkillClass": "HunterSkill",
-      "source": "__core__/AutoGen/Tech/Butchery.cs"
+      "source": "__core__/AutoGen/Tech/Butchery.cs",
+      "iconUrl": "assets/eco-icons/ButcherySkill.png"
     },
     {
       "className": "CampfireCookingSkill",
@@ -65520,7 +65529,8 @@
       "isProfession": false,
       "professionGroup": "Chef",
       "parentSkillClass": "ChefSkill",
-      "source": "__core__/AutoGen/Tech/CampfireCooking.cs"
+      "source": "__core__/AutoGen/Tech/CampfireCooking.cs",
+      "iconUrl": "assets/eco-icons/CampfireCookingSkill.png"
     },
     {
       "className": "CarpenterSkill",
@@ -65530,7 +65540,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Carpenter.cs"
+      "source": "__core__/AutoGen/Tech/Carpenter.cs",
+      "iconUrl": "assets/eco-icons/CarpenterSkill.png"
     },
     {
       "className": "CarpentrySkill",
@@ -65540,7 +65551,8 @@
       "isProfession": false,
       "professionGroup": "Carpenter",
       "parentSkillClass": "CarpenterSkill",
-      "source": "__core__/AutoGen/Tech/Carpentry.cs"
+      "source": "__core__/AutoGen/Tech/Carpentry.cs",
+      "iconUrl": "assets/eco-icons/CarpentrySkill.png"
     },
     {
       "className": "ChefSkill",
@@ -65550,7 +65562,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Chef.cs"
+      "source": "__core__/AutoGen/Tech/Chef.cs",
+      "iconUrl": "assets/eco-icons/ChefSkill.png"
     },
     {
       "className": "CompositesSkill",
@@ -65560,7 +65573,8 @@
       "isProfession": false,
       "professionGroup": "Carpenter",
       "parentSkillClass": "CarpenterSkill",
-      "source": "__core__/AutoGen/Tech/Composites.cs"
+      "source": "__core__/AutoGen/Tech/Composites.cs",
+      "iconUrl": "assets/eco-icons/CompositesSkill.png"
     },
     {
       "className": "CookingSkill",
@@ -65570,7 +65584,8 @@
       "isProfession": false,
       "professionGroup": "Chef",
       "parentSkillClass": "ChefSkill",
-      "source": "__core__/AutoGen/Tech/Cooking.cs"
+      "source": "__core__/AutoGen/Tech/Cooking.cs",
+      "iconUrl": "assets/eco-icons/CookingSkill.png"
     },
     {
       "className": "CuttingEdgeCookingSkill",
@@ -65580,7 +65595,8 @@
       "isProfession": false,
       "professionGroup": "Chef",
       "parentSkillClass": "ChefSkill",
-      "source": "__core__/AutoGen/Tech/CuttingEdgeCooking.cs"
+      "source": "__core__/AutoGen/Tech/CuttingEdgeCooking.cs",
+      "iconUrl": "assets/eco-icons/CuttingEdgeCookingSkill.png"
     },
     {
       "className": "ElectronicsSkill",
@@ -65590,7 +65606,8 @@
       "isProfession": false,
       "professionGroup": "Engineer",
       "parentSkillClass": "EngineerSkill",
-      "source": "__core__/AutoGen/Tech/Electronics.cs"
+      "source": "__core__/AutoGen/Tech/Electronics.cs",
+      "iconUrl": "assets/eco-icons/ElectronicsSkill.png"
     },
     {
       "className": "EngineerSkill",
@@ -65600,7 +65617,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Engineer.cs"
+      "source": "__core__/AutoGen/Tech/Engineer.cs",
+      "iconUrl": "assets/eco-icons/EngineerSkill.png"
     },
     {
       "className": "FarmerSkill",
@@ -65610,7 +65628,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Farmer.cs"
+      "source": "__core__/AutoGen/Tech/Farmer.cs",
+      "iconUrl": "assets/eco-icons/FarmerSkill.png"
     },
     {
       "className": "FarmingSkill",
@@ -65620,7 +65639,8 @@
       "isProfession": false,
       "professionGroup": "Farmer",
       "parentSkillClass": "FarmerSkill",
-      "source": "__core__/AutoGen/Tech/Farming.cs"
+      "source": "__core__/AutoGen/Tech/Farming.cs",
+      "iconUrl": "assets/eco-icons/FarmingSkill.png"
     },
     {
       "className": "FertilizersSkill",
@@ -65630,7 +65650,8 @@
       "isProfession": false,
       "professionGroup": "Farmer",
       "parentSkillClass": "FarmerSkill",
-      "source": "__core__/AutoGen/Tech/Fertilizers.cs"
+      "source": "__core__/AutoGen/Tech/Fertilizers.cs",
+      "iconUrl": "assets/eco-icons/FertilizersSkill.png"
     },
     {
       "className": "GatheringSkill",
@@ -65640,7 +65661,8 @@
       "isProfession": false,
       "professionGroup": "Farmer",
       "parentSkillClass": "FarmerSkill",
-      "source": "__core__/AutoGen/Tech/Gathering.cs"
+      "source": "__core__/AutoGen/Tech/Gathering.cs",
+      "iconUrl": "assets/eco-icons/GatheringSkill.png"
     },
     {
       "className": "GlassworkingSkill",
@@ -65650,7 +65672,8 @@
       "isProfession": false,
       "professionGroup": "Mason",
       "parentSkillClass": "MasonSkill",
-      "source": "__core__/AutoGen/Tech/Glassworking.cs"
+      "source": "__core__/AutoGen/Tech/Glassworking.cs",
+      "iconUrl": "assets/eco-icons/GlassworkingSkill.png"
     },
     {
       "className": "HunterSkill",
@@ -65660,7 +65683,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Hunter.cs"
+      "source": "__core__/AutoGen/Tech/Hunter.cs",
+      "iconUrl": "assets/eco-icons/HunterSkill.png"
     },
     {
       "className": "HuntingSkill",
@@ -65670,7 +65694,8 @@
       "isProfession": false,
       "professionGroup": "Hunter",
       "parentSkillClass": "HunterSkill",
-      "source": "__core__/AutoGen/Tech/Hunting.cs"
+      "source": "__core__/AutoGen/Tech/Hunting.cs",
+      "iconUrl": "assets/eco-icons/HuntingSkill.png"
     },
     {
       "className": "IndustrySkill",
@@ -65680,7 +65705,8 @@
       "isProfession": false,
       "professionGroup": "Engineer",
       "parentSkillClass": "EngineerSkill",
-      "source": "__core__/AutoGen/Tech/Industry.cs"
+      "source": "__core__/AutoGen/Tech/Industry.cs",
+      "iconUrl": "assets/eco-icons/IndustrySkill.png"
     },
     {
       "className": "LoggingSkill",
@@ -65690,7 +65716,8 @@
       "isProfession": false,
       "professionGroup": "Carpenter",
       "parentSkillClass": "CarpenterSkill",
-      "source": "__core__/AutoGen/Tech/Logging.cs"
+      "source": "__core__/AutoGen/Tech/Logging.cs",
+      "iconUrl": "assets/eco-icons/LoggingSkill.png"
     },
     {
       "className": "MasonrySkill",
@@ -65700,7 +65727,8 @@
       "isProfession": false,
       "professionGroup": "Mason",
       "parentSkillClass": "MasonSkill",
-      "source": "__core__/AutoGen/Tech/Masonry.cs"
+      "source": "__core__/AutoGen/Tech/Masonry.cs",
+      "iconUrl": "assets/eco-icons/MasonrySkill.png"
     },
     {
       "className": "MasonSkill",
@@ -65710,7 +65738,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Mason.cs"
+      "source": "__core__/AutoGen/Tech/Mason.cs",
+      "iconUrl": "assets/eco-icons/MasonSkill.png"
     },
     {
       "className": "MechanicsSkill",
@@ -65720,7 +65749,8 @@
       "isProfession": false,
       "professionGroup": "Engineer",
       "parentSkillClass": "EngineerSkill",
-      "source": "__core__/AutoGen/Tech/Mechanics.cs"
+      "source": "__core__/AutoGen/Tech/Mechanics.cs",
+      "iconUrl": "assets/eco-icons/MechanicsSkill.png"
     },
     {
       "className": "MillingSkill",
@@ -65730,7 +65760,8 @@
       "isProfession": false,
       "professionGroup": "Farmer",
       "parentSkillClass": "FarmerSkill",
-      "source": "__core__/AutoGen/Tech/Milling.cs"
+      "source": "__core__/AutoGen/Tech/Milling.cs",
+      "iconUrl": "assets/eco-icons/MillingSkill.png"
     },
     {
       "className": "MiningSkill",
@@ -65740,7 +65771,8 @@
       "isProfession": false,
       "professionGroup": "Mason",
       "parentSkillClass": "MasonSkill",
-      "source": "__core__/AutoGen/Tech/Mining.cs"
+      "source": "__core__/AutoGen/Tech/Mining.cs",
+      "iconUrl": "assets/eco-icons/MiningSkill.png"
     },
     {
       "className": "OilDrillingSkill",
@@ -65750,7 +65782,8 @@
       "isProfession": false,
       "professionGroup": "Scientist",
       "parentSkillClass": "ScientistSkill",
-      "source": "__core__/AutoGen/Tech/OilDrilling.cs"
+      "source": "__core__/AutoGen/Tech/OilDrilling.cs",
+      "iconUrl": "assets/eco-icons/OilDrillingSkill.png"
     },
     {
       "className": "PaintingSkill",
@@ -65760,7 +65793,8 @@
       "isProfession": false,
       "professionGroup": "Scientist",
       "parentSkillClass": "ScientistSkill",
-      "source": "__core__/AutoGen/Tech/Painting.cs"
+      "source": "__core__/AutoGen/Tech/Painting.cs",
+      "iconUrl": "assets/eco-icons/PaintingSkill.png"
     },
     {
       "className": "PaperMillingSkill",
@@ -65770,7 +65804,8 @@
       "isProfession": false,
       "professionGroup": "Carpenter",
       "parentSkillClass": "CarpenterSkill",
-      "source": "__core__/AutoGen/Tech/PaperMilling.cs"
+      "source": "__core__/AutoGen/Tech/PaperMilling.cs",
+      "iconUrl": "assets/eco-icons/PaperMillingSkill.png"
     },
     {
       "className": "PotterySkill",
@@ -65780,7 +65815,8 @@
       "isProfession": false,
       "professionGroup": "Mason",
       "parentSkillClass": "MasonSkill",
-      "source": "__core__/AutoGen/Tech/Pottery.cs"
+      "source": "__core__/AutoGen/Tech/Pottery.cs",
+      "iconUrl": "assets/eco-icons/PotterySkill.png"
     },
     {
       "className": "ScientistSkill",
@@ -65790,7 +65826,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Scientist.cs"
+      "source": "__core__/AutoGen/Tech/Scientist.cs",
+      "iconUrl": "assets/eco-icons/ScientistSkill.png"
     },
     {
       "className": "SelfImprovementSkill",
@@ -65800,7 +65837,8 @@
       "isProfession": false,
       "professionGroup": "Survivalist",
       "parentSkillClass": "SurvivalistSkill",
-      "source": "__core__/AutoGen/Tech/SelfImprovement.cs"
+      "source": "__core__/AutoGen/Tech/SelfImprovement.cs",
+      "iconUrl": "assets/eco-icons/SelfImprovementSkill.png"
     },
     {
       "className": "ShipwrightSkill",
@@ -65810,7 +65848,8 @@
       "isProfession": false,
       "professionGroup": "Carpenter",
       "parentSkillClass": "CarpenterSkill",
-      "source": "__core__/AutoGen/Tech/Shipwright.cs"
+      "source": "__core__/AutoGen/Tech/Shipwright.cs",
+      "iconUrl": "assets/eco-icons/ShipwrightSkill.png"
     },
     {
       "className": "SmeltingSkill",
@@ -65820,7 +65859,8 @@
       "isProfession": false,
       "professionGroup": "Smith",
       "parentSkillClass": "SmithSkill",
-      "source": "__core__/AutoGen/Tech/Smelting.cs"
+      "source": "__core__/AutoGen/Tech/Smelting.cs",
+      "iconUrl": "assets/eco-icons/SmeltingSkill.png"
     },
     {
       "className": "SmithSkill",
@@ -65830,7 +65870,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Smith.cs"
+      "source": "__core__/AutoGen/Tech/Smith.cs",
+      "iconUrl": "assets/eco-icons/SmithSkill.png"
     },
     {
       "className": "SurvivalistSkill",
@@ -65840,7 +65881,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Survivalist.cs"
+      "source": "__core__/AutoGen/Tech/Survivalist.cs",
+      "iconUrl": "assets/eco-icons/SurvivalistSkill.png"
     },
     {
       "className": "TailoringSkill",
@@ -65850,7 +65892,8 @@
       "isProfession": false,
       "professionGroup": "Tailor",
       "parentSkillClass": "TailorSkill",
-      "source": "__core__/AutoGen/Tech/Tailoring.cs"
+      "source": "__core__/AutoGen/Tech/Tailoring.cs",
+      "iconUrl": "assets/eco-icons/TailoringSkill.png"
     },
     {
       "className": "TailorSkill",
@@ -65860,7 +65903,8 @@
       "isProfession": true,
       "professionGroup": null,
       "parentSkillClass": null,
-      "source": "__core__/AutoGen/Tech/Tailor.cs"
+      "source": "__core__/AutoGen/Tech/Tailor.cs",
+      "iconUrl": "assets/eco-icons/TailorSkill.png"
     }
   ],
   "worldObjects": [

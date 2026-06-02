@@ -642,11 +642,19 @@ async function addIconUrls(result, iconsDir) {
     housing.iconUrl = iconUrl;
   }
 
+  let skillsWithIcons = 0;
+  for (const skill of result.skills) {
+    const iconUrl = iconUrlFor(skill.className);
+    if (iconUrl) skillsWithIcons += 1;
+    skill.iconUrl = iconUrl;
+  }
+
   result.meta.icons = {
     source: path.resolve(iconsDir),
     files: iconFiles.size,
     itemsWithIcons,
     housingWithIcons,
+    skillsWithIcons,
   };
 }
 

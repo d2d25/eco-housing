@@ -3,7 +3,7 @@ import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
 import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKind, surfaceSummary, surfaceUnitsProvided, surfaceUnitsRequired } from "../domain/placementRules";
 import { summarizeEntries } from "../domain/roomScoring";
-import type { EcoModel, HousingItem, ItemClass, RoomOptimization, SkillClass } from "../domain/types";
+import type { EcoModel, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
 import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems, type ActiveView, type AppConfig } from "./storage";
 import { useRoomOptimizationWorker } from "./useRoomOptimizationWorker";
@@ -167,7 +167,7 @@ function SkillPanel({
             {skills.map((skill) => (
               <label className="check-row" key={skill.className}>
                 <input type="checkbox" checked={selectedSkills.has(skill.className)} onChange={() => toggle(skill.className)} />
-                <span>{skill.friendlyName}</span>
+                <SkillName skill={skill} />
               </label>
             ))}
           </details>
@@ -592,7 +592,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
                         checked={config.objectCraftSkills.includes(skill.className)}
                         onChange={() => update({ objectCraftSkills: toggleFilterValue(config.objectCraftSkills, skill.className) })}
                       />
-                      <span>{skill.friendlyName}</span>
+                      <SkillName skill={skill} />
                     </label>
                   ))}
                 </FilterColumn>
@@ -609,7 +609,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
                   <td>{formatFootprint(item)}</td>
                   <td>{item.requirements?.requiredRoomVolume ?? "-"}</td>
-                  <td>{formatCraftSkills(model, item)}</td>
+                  <td><CraftSkillNames model={model} item={item} /></td>
                 </tr>
               );
             })}
@@ -663,7 +663,19 @@ function isCraftSkill(model: EcoModel, skillClass: SkillClass | null | undefined
   return !skill?.isProfession;
 }
 
-function formatCraftSkills(model: EcoModel, item: HousingItem) {
+function CraftSkillNames({ model, item }: { model: EcoModel; item: HousingItem }) {
+  const requirements = craftSkillRequirements(model, item);
+  if (!requirements.length) return <span>All</span>;
+  return (
+    <span className="skill-list-inline">
+      {requirements.map(({ skill, level }) => (
+        <SkillName key={skill.className} skill={skill} suffix={level ? String(level) : undefined} />
+      ))}
+    </span>
+  );
+}
+
+function craftSkillRequirements(model: EcoModel, item: HousingItem) {
   const requirements = new Map<SkillClass, number | null>();
   for (const recipe of item.recipes) {
     const skillClass = recipe.requiredSkillClass;
@@ -673,15 +685,12 @@ function formatCraftSkills(model: EcoModel, item: HousingItem) {
     if (current == null || (level ?? 0) < current) requirements.set(skillClass, level);
   }
 
-  if (!requirements.size) return "All";
-
   return [...requirements.entries()]
-    .map(([skillClass, level]) => {
-      const name = model.skillsByClass.get(skillClass)?.friendlyName ?? skillClass;
-      return level ? `${name} ${level}` : name;
-    })
-    .sort((a, b) => a.localeCompare(b))
-    .join(", ");
+    .map(([skillClass, level]) => ({
+      skill: model.skillsByClass.get(skillClass) ?? { className: skillClass, friendlyName: skillClass },
+      level,
+    }))
+    .sort((a, b) => byName(a.skill, b.skill));
 }
 
 function ColumnHelp({ label, help }: { label: string; help: string }) {
@@ -836,6 +845,23 @@ function ItemName({ item, subtitle }: { item: HousingItem; subtitle?: string | n
   );
 }
 
+function SkillName({ skill, suffix }: { skill: Pick<Skill, "className" | "friendlyName" | "iconUrl">; suffix?: string }) {
+  return (
+    <span className="skill-name">
+      <SkillIcon skill={skill} />
+      <span>{skill.friendlyName}{suffix ? ` ${suffix}` : ""}</span>
+    </span>
+  );
+}
+
+function SkillIcon({ skill }: { skill: Pick<Skill, "className" | "friendlyName" | "iconUrl"> }) {
+  const style = { "--icon-hue": iconHue(skill.className) } as CSSProperties;
+  if (skill.iconUrl) {
+    return <img className="skill-icon" src={skill.iconUrl} alt="" loading="lazy" />;
+  }
+  return <span className="skill-icon skill-icon-fallback" style={style} aria-hidden="true">{iconInitials(skill.friendlyName)}</span>;
+}
+
 function ItemIcon({ item }: { item: HousingItem }) {
   const label = iconLabel(item);
   const style = { "--icon-hue": iconHue(item.itemClass) } as CSSProperties;
@@ -845,11 +871,15 @@ function ItemIcon({ item }: { item: HousingItem }) {
   return <span className="item-icon item-icon-fallback" style={style} aria-hidden="true">{label}</span>;
 }
 
-function iconLabel(item: HousingItem) {
-  const words = item.friendlyName.replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/).filter(Boolean);
+function iconInitials(value: string) {
+  const words = value.replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/).filter(Boolean);
   if (!words.length) return "?";
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function iconLabel(item: HousingItem) {
+  return iconInitials(item.friendlyName);
 }
 
 function iconHue(value: string) {
