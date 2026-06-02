@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
-import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKind, surfaceSummary, surfaceUnitsProvided, surfaceUnitsRequired } from "../domain/placementRules";
+import { effectiveFloorArea, estimateObjectFloor, formatFootprint, surfacePlacementKind, surfaceSummary } from "../domain/placementRules";
 import { roomUsesMaterialTier, summarizeEntries } from "../domain/roomScoring";
 import type { EcoModel, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
@@ -21,6 +21,7 @@ export function App() {
   const [ownedItems, setOwnedItems] = useState<Map<ItemClass, number>>(() => loadOwnedItems());
   const [ownedOpen, setOwnedOpen] = useState(false);
   const [allowedOpen, setAllowedOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const t = useMemo(() => createTranslator(config.language), [config.language]);
 
   useEffect(() => {
@@ -86,6 +87,7 @@ export function App() {
           </div>
           <div className="stats">
             <LanguageSwitcher language={config.language} onChange={(language) => update({ language })} />
+            <button className="settings-button" onClick={() => setSettingsOpen(true)}>{t("settings")}</button>
             <div><strong>{model.housingItems.length}</strong><span>{t("housingCount")}</span></div>
             <div><strong>{availableHousingCount}</strong><span>{t("availableObjectsCount")}</span></div>
           </div>
@@ -112,6 +114,7 @@ export function App() {
 
       {ownedOpen && <OwnedItemsModal t={t} language={config.language} model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
       {allowedOpen && <AllowedItemsModal t={t} language={config.language} model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
+      {settingsOpen && <SettingsModal t={t} config={config} update={update} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
@@ -303,7 +306,7 @@ function RoomPage(props: {
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
       {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} />
+        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} devMode={config.devMode} />
       )}
     </section>
   );
@@ -478,6 +481,7 @@ function RoomOptimizationResults({
   height,
   roomVolume,
   usesRoomSize,
+  devMode,
 }: {
   t: Translator;
   language: Language;
@@ -488,6 +492,7 @@ function RoomOptimizationResults({
   height: number;
   roomVolume: number;
   usesRoomSize: boolean;
+  devMode: boolean;
 }) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
@@ -523,7 +528,7 @@ function RoomOptimizationResults({
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
-              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} />) : <div className="empty">{t("noItemWithFilters")}</div>}
+              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} devMode={devMode} />) : <div className="empty">{t("noItemWithFilters")}</div>}
             </div>
           </article>
         ))}
@@ -540,33 +545,70 @@ function OptimizationError({ t, message }: { t: Translator; message: string }) {
   return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
 }
 
-function RoomItem({ t, language, model, summary }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number] }) {
+function RoomItem({ t, language, model, summary, devMode }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; devMode: boolean }) {
   const item = summary.item;
   const variants = variantAlternatives(model, item);
   return (
-    <div className="opt-item">
-      <div className="item-head">
-        <ItemName language={language} item={item} />
-        <b>x{summary.quantityPerRoom}</b>
+    <details className="opt-item">
+      <summary className="room-item-summary">
+        <span className="room-item-title">
+          <ItemName language={language} item={item} />
+          <b>x{summary.quantityPerRoom}</b>
+        </span>
+        <span className="room-item-metrics">
+          <MetricBadge label="XP" value={summary.score.toFixed(2)} />
+          <MetricBadge label={t("floorShort")} value={String(summary.totalFloor)} />
+          <MetricBadge label={t("m3Short")} value={String(summary.totalRequiredVolume)} />
+          {devMode && <button className="copy-give-button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copyText(giveCommand(item, summary.quantityPerRoom)); }}>{t("copyGive")}</button>}
+        </span>
+      </summary>
+      <div className="room-item-detail">
+        <div className="detail-grid">
+          <DetailMetric label={t("xpPerObject")} value={`+${formatCompactNumber(summary.score / summary.quantityPerRoom)}`} />
+          <DetailMetric label={t("m3PerObject")} value={formatCompactNumber(summary.totalRequiredVolume / summary.quantityPerRoom)} />
+          <DetailMetric label={t("floorFootprintPerObject")} value={formatFootprint(item)} />
+        </div>
+        <table className="item-breakdown-table">
+          <thead><tr><th>{t("copyIndex")}</th><th>%</th><th>XP</th></tr></thead>
+          <tbody>{summary.rows.map((row) => <tr key={row.index}><td>#{row.index}</td><td>{Math.round(row.multiplier * 100)}%</td><td>{formatCompactNumber(row.score)}</td></tr>)}</tbody>
+        </table>
+        {devMode && (
+          <div className="dev-panel">
+            <div className="pill-row compact">
+              {summary.fromOwned > 0 && <span className="pill">{t("owned")} x{summary.fromOwned}</span>}
+              {summary.rawScore - summary.score > 0.01 && <span className="pill warn">cap -{(summary.rawScore - summary.score).toFixed(2)}</span>}
+              {summary.totalSurfaceProvided > 0 && <span className="pill">{t("surface")} +{summary.totalSurfaceProvided}</span>}
+              {summary.totalSurfaceRequired > 0 && <span className="pill">{t("surface")} -{summary.totalSurfaceRequired}</span>}
+              {summary.placedOnFloor && <span className="pill warn">{t("floorPlacement")}</span>}
+              {item.requirements?.requiredRoomMaterialTier != null && <span className="pill">T{item.requirements.requiredRoomMaterialTier}</span>}
+            </div>
+            {variants.length > 0 && <VariantDetails t={t} language={language} variants={variants} />}
+          </div>
+        )}
       </div>
-      <div className="pill-row">
-        <span className="pill">+{summary.score.toFixed(2)} {t("xpTotal")}</span>
-        {summary.fromOwned > 0 && <span className="pill">{t("owned")} x{summary.fromOwned}</span>}
-        {summary.rawScore - summary.score > 0.01 && <span className="pill warn">cap -{(summary.rawScore - summary.score).toFixed(2)}</span>}
-        {summary.lastMultiplier < 1 && <span className="pill">{t("last")}: {Math.round(summary.lastMultiplier * 100)}%</span>}
-        <span className="pill">{item.typeForRoomLimit ?? t("general")}</span>
-        <span className="pill">{formatFootprint(item)}</span>
-        {surfacePlacementKind(item) && <span className="pill">{surfacePlacementKind(item)}</span>}
-        {summary.placedOnFloor && <span className="pill warn">{t("floorPlacement")}</span>}
-        {surfaceUnitsProvided(item) > 0 && <span className="pill">{t("surfaceProvided")}{surfaceUnitsProvided(item)}</span>}
-        {surfaceUnitsRequired(item) > 0 && <span className="pill">{t("surfaceRequired")}{surfaceUnitsRequired(item)}</span>}
-        {itemFootprint(item).estimated && <span className="pill warn">{t("estimatedFootprint")}</span>}
-        {item.requirements?.requiredRoomVolume != null && <span className="pill">{t("requiredM3")} {item.requirements.requiredRoomVolume}</span>}
-        {item.requirements?.requiredRoomMaterialTier != null && <span className="pill">T{item.requirements.requiredRoomMaterialTier}</span>}
-      </div>
-      {variants.length > 0 && <VariantDetails t={t} language={language} variants={variants} />}
-    </div>
+    </details>
   );
+}
+
+function MetricBadge({ label, value }: { label: string; value: string }) {
+  return <span className="metric-badge"><strong>{value}</strong><small>{label}</small></span>;
+}
+
+function DetailMetric({ label, value }: { label: string; value: string }) {
+  return <span className="detail-metric"><small>{label}</small><strong>{value}</strong></span>;
+}
+
+function formatCompactNumber(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function giveCommand(item: HousingItem, quantity: number) {
+  return `/give ${item.itemClass},${quantity}`;
+}
+
+async function copyText(value: string) {
+  await navigator.clipboard?.writeText(value);
 }
 
 function ObjectsPage({ model, t, language, config, update, selectedSkills }: { model: EcoModel; t: Translator; language: Language; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
@@ -757,7 +799,7 @@ function requiredVolumeForSort(item: HousingItem) {
 }
 
 function floorAreaForSort(item: HousingItem) {
-  return itemFootprint(item).floorArea;
+  return effectiveFloorArea(item);
 }
 
 function objectSearchText(model: EcoModel, item: HousingItem, language: Language) {
@@ -1020,6 +1062,22 @@ function AllowedItemsModal({ t, language, model, disabledItems, onChange, onClos
       <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("filterObjects")} /><button onClick={() => onChange(new Set())}>{t("allowAll")}</button></div>
       <div className="modal-list">
         {items.map((item) => <label className="check-row modal-check" key={item.itemClass}><input type="checkbox" checked={!disabledItems.has(item.itemClass)} onChange={(event) => setAllowed(item, event.target.checked)} /><ItemName language={language} item={item} subtitle={displayCategoryName(model, item.category, language)} /></label>)}
+      </div>
+    </Modal>
+  );
+}
+
+function SettingsModal({ t, config, update, onClose }: { t: Translator; config: AppConfig; update: (partial: Partial<AppConfig>) => void; onClose: () => void }) {
+  return (
+    <Modal title={t("settings")} onClose={onClose}>
+      <div className="settings-list">
+        <label className="settings-row">
+          <input type="checkbox" checked={config.devMode} onChange={(event) => update({ devMode: event.target.checked })} />
+          <span>
+            <strong>{t("devMode")}</strong>
+            <small>{t("devModeHelp")}</small>
+          </span>
+        </label>
       </div>
     </Modal>
   );

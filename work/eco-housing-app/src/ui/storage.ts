@@ -13,6 +13,7 @@ export interface AppConfig {
   height: number;
   roomSizeMode: "auto" | "manual" | "materials";
   materialBudget: number;
+  devMode: boolean;
   selectedSkills: SkillClass[];
   disabledItems: ItemClass[];
   objectSearch: string;
@@ -31,6 +32,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   height: 3,
   roomSizeMode: "auto",
   materialBudget: 120,
+  devMode: false,
   selectedSkills: [],
   disabledItems: [],
   objectSearch: "",
@@ -63,6 +65,7 @@ export function loadConfig(): AppConfig {
       language: isLanguage(parsed.language) ? parsed.language : DEFAULT_CONFIG.language,
       roomSizeMode: parsed.roomSizeMode === "auto" || parsed.roomSizeMode === "manual" || parsed.roomSizeMode === "materials" ? parsed.roomSizeMode : DEFAULT_CONFIG.roomSizeMode,
       materialBudget: Number.isFinite(Number(parsed.materialBudget)) ? Number(parsed.materialBudget) : DEFAULT_CONFIG.materialBudget,
+      devMode: Boolean(parsed.devMode),
       objectSort: parsed.objectSort === "name" ? DEFAULT_CONFIG.objectSort : parsed.objectSort ?? DEFAULT_CONFIG.objectSort,
     };
   } catch {

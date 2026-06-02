@@ -14,6 +14,7 @@ export interface EcoItem {
   notInBrowser?: boolean;
   noIcon?: boolean;
   iconUrl?: string | null;
+  attachmentDirections?: string[];
   variantGroupKey?: string | null;
   variantOfItemClass?: ItemClass | null;
   variantItemClasses?: ItemClass[];
@@ -38,6 +39,7 @@ export interface HousingValue {
   notInBrowser?: boolean;
   noIcon?: boolean;
   iconUrl?: string | null;
+  attachmentDirections?: string[];
   variantGroupKey?: string | null;
   variantOfItemClass?: ItemClass | null;
   variantItemClasses?: ItemClass[];
@@ -111,6 +113,7 @@ export interface WorldObjectRequirement {
   requiredRoomMaterialTier?: number | null;
   requiresOccupancy?: boolean;
   requiresRoomRequirements?: boolean;
+  attachmentDirections?: string[];
 }
 
 export interface Occupancy {

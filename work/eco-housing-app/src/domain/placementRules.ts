@@ -21,11 +21,21 @@ export function canPlaceOnFloorWhenNoSurface(item: HousingItem) {
 }
 
 export function surfacePlacementKind(item: HousingItem) {
+  if (isWallOrCeilingAttached(item)) return "mural";
   if (hasSurfaceTag(item, "Rug")) return "superposable: tapis";
   if (isPetalSurfaceOnly(item)) return "surface seulement estime";
   if (hasSurfaceTag(item, "CanBeOnSurface")) return "posable sur surface";
   if (hasSurfaceTag(item, "HasTableSurface")) return "fournit surface";
   return "";
+}
+
+export function attachmentDirections(item: HousingItem) {
+  return [...new Set([...(item.attachmentDirections ?? []), ...(item.requirements?.attachmentDirections ?? [])])];
+}
+
+export function isWallOrCeilingAttached(item: HousingItem) {
+  const directions = attachmentDirections(item);
+  return directions.some((direction) => direction !== "Down");
 }
 
 export function itemFootprint(item: HousingItem) {
@@ -35,6 +45,7 @@ export function itemFootprint(item: HousingItem) {
 }
 
 export function effectiveFloorArea(item: HousingItem) {
+  if (isWallOrCeilingAttached(item)) return 0;
   if (hasSurfaceTag(item, "Rug")) return 0;
   if (isPetalSurfaceOnly(item)) return 0;
   return itemFootprint(item).floorArea;
@@ -72,8 +83,9 @@ export function itemFitsRoomDimensions(item: HousingItem, constraints: Pick<Room
 
 export function formatFootprint(item: HousingItem) {
   const footprint = itemFootprint(item);
-  if (!footprint.floorArea) return "-";
-  return `${footprint.width}x${footprint.depth}=${footprint.floorArea}`;
+  const floorArea = effectiveFloorArea(item);
+  if (!floorArea) return "-";
+  return `${footprint.width}x${footprint.depth}=${floorArea}`;
 }
 
 export function surfaceSummary(entries: OptimizationEntry[]) {

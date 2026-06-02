@@ -1,3 +1,4 @@
+import { floorAreaWhenOnSurface, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
 import type { EcoModel, OptimizationEntry, OptimizationGroup, RoomTier, ScoreSummary } from "./types";
 
 export function compatibleCategoriesForRoom(model: EcoModel, roomName: string) {
@@ -68,6 +69,11 @@ export function summarizeEntries(entries: OptimizationEntry[]) {
     capped: boolean;
     placedOnFloor: boolean;
     lastMultiplier: number;
+    totalFloor: number;
+    totalRequiredVolume: number;
+    totalSurfaceProvided: number;
+    totalSurfaceRequired: number;
+    rows: { index: number; multiplier: number; score: number; rawScore: number }[];
   }>();
 
   for (const entry of entries) {
@@ -80,6 +86,11 @@ export function summarizeEntries(entries: OptimizationEntry[]) {
       capped: false,
       placedOnFloor: false,
       lastMultiplier: 1,
+      totalFloor: 0,
+      totalRequiredVolume: 0,
+      totalSurfaceProvided: 0,
+      totalSurfaceRequired: 0,
+      rows: [],
     };
     current.quantityPerRoom += 1;
     current.score += entry.score;
@@ -88,6 +99,11 @@ export function summarizeEntries(entries: OptimizationEntry[]) {
     current.capped = current.capped || entry.capped;
     current.placedOnFloor = current.placedOnFloor || Boolean(entry.placedOnFloor);
     current.lastMultiplier = entry.multiplier;
+    current.totalFloor += floorAreaWhenOnSurface(entry.item) + (entry.extraFloorFromSurfaceOverflow ?? 0);
+    current.totalRequiredVolume += entry.item.requirements?.requiredRoomVolume ?? 0;
+    current.totalSurfaceProvided += surfaceUnitsProvided(entry.item);
+    current.totalSurfaceRequired += entry.placedOnFloor ? 0 : surfaceUnitsRequired(entry.item);
+    current.rows.push({ index: current.quantityPerRoom, multiplier: entry.multiplier, score: entry.score, rawScore: entry.rawScore });
     byItem.set(entry.item.itemClass, current);
   }
 

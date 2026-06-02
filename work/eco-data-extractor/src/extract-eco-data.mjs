@@ -491,11 +491,14 @@ function parseRoomTiers(source) {
   return tiers;
 }
 
+function parseAttachmentDirections(body) {
+  const attachment = body.match(/GetOccupancyContext\s*=>\s*new\s+SideAttachedContext\s*\(\s*([^,]+),/m)?.[1] ?? null;
+  if (!attachment) return [];
+  return [...attachment.matchAll(/DirectionAxisFlags\.([A-Za-z0-9_]+)/g)].map((match) => match[1]);
+}
+
 function parseWorldObjectRequirements(entry) {
-  const attachment = entry.body.match(/GetOccupancyContext\s*=>\s*new\s+SideAttachedContext\s*\(\s*([^,]+),/m)?.[1] ?? null;
-  const attachmentDirections = attachment
-    ? [...attachment.matchAll(/DirectionAxisFlags\.([A-Za-z0-9_]+)/g)].map((match) => match[1])
-    : [];
+  const attachmentDirections = parseAttachmentDirections(entry.body);
   return {
     className: entry.name,
     displayName: parseClassDisplay(entry),
@@ -618,12 +621,21 @@ function parseFile(filePath, source, modsRoot) {
       .filter((entry) => /PictureFrameObject|IHasDynamicHomeFurnishingValue|DynamicFurnishingValue/.test(`${entry.base}\n${entry.body}`))
       .map((entry) => entry.name)
   );
+  const itemAttachmentDirectionsByWorldObject = new Map();
+  for (const entry of itemClasses) {
+    const worldObjectClass = entry.base.match(/WorldObjectItem<([A-Za-z0-9_]+)>/)?.[1] ?? null;
+    const attachmentDirections = parseAttachmentDirections(entry.body);
+    if (worldObjectClass && attachmentDirections.length) {
+      itemAttachmentDirectionsByWorldObject.set(worldObjectClass, attachmentDirections);
+    }
+  }
 
   const items = itemClasses.map((entry) => ({
     className: entry.name,
     friendlyName: parseClassDisplay(entry),
     description: parseClassDescription(entry),
     worldObjectClass: entry.base.match(/WorldObjectItem<([A-Za-z0-9_]+)>/)?.[1] ?? null,
+    attachmentDirections: parseAttachmentDirections(entry.body),
     ...parseBrowserMetadata(entry),
     source: relativePath,
   }));
@@ -639,6 +651,7 @@ function parseFile(filePath, source, modsRoot) {
         description: parseClassDescription(entry),
         worldObjectClass,
         ...housing,
+        attachmentDirections: parseAttachmentDirections(entry.body),
         hasDynamicFurnishingValue: housing.hasDynamicFurnishingValue || dynamicWorldObjectClasses.has(worldObjectClass),
         ...parseBrowserMetadata(entry),
         source: relativePath,
@@ -687,7 +700,14 @@ function parseFile(filePath, source, modsRoot) {
     source: relativePath,
   }));
 
-  const worldObjects = worldObjectClasses.map(parseWorldObjectRequirements);
+  const worldObjects = worldObjectClasses.map((entry) => {
+    const requirements = parseWorldObjectRequirements(entry);
+    const itemAttachmentDirections = itemAttachmentDirectionsByWorldObject.get(entry.name) ?? [];
+    return {
+      ...requirements,
+      attachmentDirections: requirements.attachmentDirections.length ? requirements.attachmentDirections : itemAttachmentDirections,
+    };
+  });
 
   return {
     items,

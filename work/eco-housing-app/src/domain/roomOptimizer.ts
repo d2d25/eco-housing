@@ -46,16 +46,61 @@ export function roomOptimization(model: EcoModel, input: RoomInput): RoomOptimiz
   if (input.roomType !== "Outdoor" && input.sizeMode === "materials") return optimizeWithinMaterialBudget(model, input);
   const context = buildOptimizationContext(model, input);
   const best = selectBestRoomPlan(context);
-  const entries = best.groups.flatMap((group) => group.entries);
+  const surfaceNormalized = normalizeSurfacePlacement(best.groups, best.constraints);
+  const entries = surfaceNormalized.groups.flatMap((group) => group.entries);
   const resolvedSize = resolveRoomSize(input, entries);
-  const constraints = resolvedSize ? { ...best.constraints, maxWidth: resolvedSize.width, maxDepth: resolvedSize.depth, maxHeight: resolvedSize.height, maxFloor: resolvedSize.floorArea, maxVolume: resolvedSize.volume } : best.constraints;
+  const constraints = resolvedSize ? { ...surfaceNormalized.constraints, maxWidth: resolvedSize.width, maxDepth: resolvedSize.depth, maxHeight: resolvedSize.height, maxFloor: resolvedSize.floorArea, maxVolume: resolvedSize.volume } : surfaceNormalized.constraints;
   return {
     roomName: input.roomType,
-    groups: best.groups,
-    score: scoreSummary(model, best.groups, input.tier, input.roomType),
+    groups: surfaceNormalized.groups,
+    score: scoreSummary(model, surfaceNormalized.groups, input.tier, input.roomType),
     entries,
     constraints,
     resolvedSize,
+  };
+}
+
+function normalizeSurfacePlacement(groups: OptimizationGroup[], constraints: RoomConstraints) {
+  const indexedEntries = groups.flatMap((group, groupIndex) => group.entries.map((entry, entryIndex) => ({ groupIndex, entryIndex, entry })));
+  const surfaceCapacity = indexedEntries.reduce((total, { entry }) => total + surfaceUnitsProvided(entry.item), 0);
+  const assignedToSurface = new Set<string>();
+  let usedSurface = 0;
+
+  const consumers = indexedEntries
+    .filter(({ entry }) => surfaceUnitsRequired(entry.item) > 0)
+    .sort((a, b) => Number(canPlaceOnFloorWhenNoSurface(a.entry.item)) - Number(canPlaceOnFloorWhenNoSurface(b.entry.item)));
+
+  for (const { groupIndex, entryIndex, entry } of consumers) {
+    const required = surfaceUnitsRequired(entry.item);
+    if (usedSurface + required > surfaceCapacity) continue;
+    assignedToSurface.add(`${groupIndex}:${entryIndex}`);
+    usedSurface += required;
+  }
+
+  let usedFloor = 0;
+  const normalizedGroups = groups.map((group, groupIndex) => ({
+    ...group,
+    entries: group.entries.map((entry, entryIndex) => {
+      const required = surfaceUnitsRequired(entry.item);
+      const usesSurface = required > 0 && assignedToSurface.has(`${groupIndex}:${entryIndex}`);
+      const floorArea = usesSurface ? floorAreaWhenOnSurface(entry.item) : effectiveFloorArea(entry.item);
+      usedFloor += floorArea;
+      return {
+        ...entry,
+        placedOnFloor: required > 0 && !usesSurface && canPlaceOnFloorWhenNoSurface(entry.item) || undefined,
+        extraFloorFromSurfaceOverflow: Math.max(0, floorArea - floorAreaWhenOnSurface(entry.item)) || undefined,
+      };
+    }),
+  }));
+
+  return {
+    groups: normalizedGroups,
+    constraints: {
+      ...constraints,
+      usedFloor,
+      surfaceCapacity,
+      usedSurface,
+    },
   };
 }
 

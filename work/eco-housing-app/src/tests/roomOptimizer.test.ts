@@ -123,6 +123,19 @@ describe("Eco housing reference calculations", () => {
     expect(floorAreaWhenOnSurface(rose)).toBe(0);
     expect(effectiveFloorArea(rose)).toBe(0);
   });
+
+  test("does not count side-attached wall lamps as floor area", () => {
+    const lamp = housing("Electric Wall Lamp");
+    expect(lamp.attachmentDirections?.length || lamp.requirements?.attachmentDirections?.length).toBeGreaterThan(0);
+    expect(effectiveFloorArea(lamp)).toBe(0);
+    expect(floorAreaWhenOnSurface(lamp)).toBe(0);
+  });
+
+  test("keeps floor-attached objects on the floor", () => {
+    const fireplace = housing("Ashlar Basalt Fireplace");
+    expect(fireplace.attachmentDirections).toContain("Down");
+    expect(effectiveFloorArea(fireplace)).toBe(3);
+  });
 });
 
 describe("Room optimizer behavior", () => {
@@ -237,6 +250,21 @@ describe("Room optimizer quality", () => {
     expect(result.score.afterSupportCaps).toBe(7);
   });
 
+  test("reassigns surface-capable items onto surfaces available later in the room", () => {
+    const synthetic = syntheticModel([
+      fixtureItem("Gong", "GongItem", "Bathroom", 5, "Gong", { floorArea: 1, canBeOnSurface: true }),
+      fixtureItem("Table", "TableItem", "Decoration", 1, "Table", { floorArea: 4, surfaceProvided: true }),
+    ], { decorationSupportPercent: 1 });
+
+    const result = roomOptimization(synthetic, syntheticInput());
+    const gong = result.entries.find((entry) => entry.item.friendlyName === "Gong");
+
+    expect(names(result)).toContain("Table");
+    expect(gong?.placedOnFloor).toBeFalsy();
+    expect(result.constraints.usedFloor).toBe(4);
+    expect(result.constraints.usedSurface).toBe(1);
+  });
+
   test("does not select Petals when no surface is available", () => {
     const synthetic = syntheticModel([
       fixtureItem("Plain Primary", "PlainPrimaryItem", "Bathroom", 5, "Primary", { floorArea: 1 }),
@@ -313,7 +341,7 @@ function fixtureItem(
   category: string,
   value: number,
   typeForRoomLimit: string,
-  options: { volume?: number; floorArea?: number; surfaceProvided?: boolean; petals?: boolean } = {},
+  options: { volume?: number; floorArea?: number; surfaceProvided?: boolean; canBeOnSurface?: boolean; petals?: boolean } = {},
 ) {
   const worldObjectClass = options.petals ? null : `${itemClass.replace(/Item$/, "")}Object`;
   return {
@@ -325,7 +353,11 @@ function fixtureItem(
       value,
       typeForRoomLimit,
       diminishingReturnPercent: 0,
-      tags: options.petals ? ["Petals"] : options.surfaceProvided ? ["SurfaceTags.HasTableSurface"] : [],
+      tags: [
+        ...(options.petals ? ["Petals"] : []),
+        ...(options.surfaceProvided ? ["SurfaceTags.HasTableSurface"] : []),
+        ...(options.canBeOnSurface ? ["SurfaceTags.CanBeOnSurface"] : []),
+      ],
       hiddenCategory: false,
       notInBrowser: false,
     },
@@ -333,7 +365,10 @@ function fixtureItem(
       className: itemClass,
       friendlyName,
       worldObjectClass,
-      tags: options.petals ? ["Petals"] : [],
+      tags: [
+        ...(options.petals ? ["Petals"] : []),
+        ...(options.canBeOnSurface ? ["SurfaceTags.CanBeOnSurface"] : []),
+      ],
     },
     worldObject: worldObjectClass ? {
       className: worldObjectClass,

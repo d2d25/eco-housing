@@ -100,6 +100,7 @@ function mergeWorldObjectRequirements(
     representedItemClass: next.representedItemClass ?? current.representedItemClass,
     categories: [...new Set([...(current.categories ?? []), ...(next.categories ?? [])])],
     tags: [...new Set([...(current.tags ?? []), ...(next.tags ?? [])])],
+    attachmentDirections: [...new Set([...(current.attachmentDirections ?? []), ...(next.attachmentDirections ?? [])])],
     requireRoomContainment: Boolean(current.requireRoomContainment || next.requireRoomContainment),
     requiredRoomVolume: next.requiredRoomVolume ?? current.requiredRoomVolume,
     requiredRoomMaterialTier: next.requiredRoomMaterialTier ?? current.requiredRoomMaterialTier,

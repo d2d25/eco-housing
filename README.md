@@ -40,6 +40,20 @@ For calculation differences between the app and the game, please include:
 
 See [ISSUES.md](./ISSUES.md) for the issue instructions.
 
+## Developer Mode
+
+Developer mode is disabled by default from **Settings**.
+
+When disabled, room item cards only show player-facing information: total XP, total floor used, total required m3, and a small per-copy breakdown when opened.
+
+When enabled, room item cards also show technical/debug details and a copyable Eco admin command in the form:
+
+```text
+/give ItemClass,quantity
+```
+
+Use this mode when reproducing app-vs-game differences or quickly spawning the optimized objects in a test world.
+
 ## Recommended Beta Deployment
 
 ### GitHub Pages
