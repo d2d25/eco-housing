@@ -35,18 +35,23 @@ export function applyTierCap(model: EcoModel, value: number, tierValue: number) 
   return tier.hardCap - range * (tier.diminishingReturnPercent ** (overflow / range));
 }
 
-export function scoreSummary(model: EcoModel, groups: OptimizationGroup[], tierValue: number): ScoreSummary {
+export function roomUsesMaterialTier(model: EcoModel, roomName: string) {
+  return model.roomCategoryByName.get(roomName)?.shouldCapFromRoomMaterials !== false;
+}
+
+export function scoreSummary(model: EcoModel, groups: OptimizationGroup[], tierValue: number, roomName?: string): ScoreSummary {
   const allEntries = groups.flatMap((group) => group.entries);
   const raw = allEntries.reduce((total, entry) => total + (entry.baseScore ?? entry.item.value ?? 0), 0);
   const afterDiminishing = allEntries.reduce((total, entry) => total + (entry.rawScore ?? entry.score), 0);
   const afterSupportCaps = estimateEntriesScore(allEntries);
-  const capped = applyTierCap(model, afterSupportCaps, tierValue);
+  const usesMaterialTier = roomName ? roomUsesMaterialTier(model, roomName) : true;
+  const capped = usesMaterialTier ? applyTierCap(model, afterSupportCaps, tierValue) : afterSupportCaps;
   return {
     raw,
     afterDiminishing,
     afterSupportCaps,
     capped,
-    tier: selectedTier(model, tierValue),
+    tier: usesMaterialTier ? selectedTier(model, tierValue) : null,
     duplicateLoss: Math.max(0, raw - afterDiminishing),
     supportCapLoss: Math.max(0, afterDiminishing - afterSupportCaps),
     capLoss: Math.max(0, afterSupportCaps - capped),

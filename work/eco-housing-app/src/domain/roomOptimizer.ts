@@ -1,7 +1,7 @@
 import { createCraftResolver } from "./craftResolver";
 import { byName } from "./model";
 import { canPlaceOnFloorWhenNoSurface, effectiveFloorArea, floorAreaWhenOnSurface, itemFitsRoomDimensions, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
-import { applyTierCap, compatibleCategoriesForRoom, diminishingMultiplier, estimateEntriesScore, scoreSummary, supportCapPercentForCategory } from "./roomScoring";
+import { compatibleCategoriesForRoom, diminishingMultiplier, estimateEntriesScore, scoreSummary, supportCapPercentForCategory } from "./roomScoring";
 import type { EcoModel, HousingItem, ItemClass, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization } from "./types";
 
 const MIN_NON_OWNED_CREDITED_SCORE = 0.1;
@@ -42,7 +42,7 @@ export function roomOptimization(model: EcoModel, input: RoomInput): RoomOptimiz
   return {
     roomName: input.roomType,
     groups: best.groups,
-    score: scoreSummary(model, best.groups, input.tier),
+    score: scoreSummary(model, best.groups, input.tier, input.roomType),
     entries: best.groups.flatMap((group) => group.entries),
     constraints: best.constraints,
   };
@@ -260,8 +260,8 @@ function keepBestCategoryPlans(context: OptimizationContext, plans: CategoryPlan
 
 function compareRoomPlans(context: OptimizationContext, a: RoomPlan, b: RoomPlan) {
   if (context.objective.kind === "maximizeUsefulRoomScore") {
-    const scoreA = scoreSummary(context.model, a.groups, context.input.tier);
-    const scoreB = scoreSummary(context.model, b.groups, context.input.tier);
+    const scoreA = scoreSummary(context.model, a.groups, context.input.tier, context.input.roomType);
+    const scoreB = scoreSummary(context.model, b.groups, context.input.tier, context.input.roomType);
     return (
       scoreB.capped - scoreA.capped ||
       scoreB.afterSupportCaps - scoreA.afterSupportCaps ||
@@ -323,12 +323,17 @@ function storeBestCategoryPlan(plans: Map<string, CategoryPlan>, plan: CategoryP
 }
 
 function createInitialConstraints(input: RoomInput): RoomConstraints {
+  const maxWidth = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.width;
+  const maxDepth = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.depth;
+  const maxHeight = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.height;
+  const maxFloor = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.width * input.depth;
+  const maxVolume = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.width * input.depth * input.height;
   return {
-    maxWidth: input.width,
-    maxDepth: input.depth,
-    maxHeight: input.height,
-    maxFloor: input.width * input.depth,
-    maxVolume: input.width * input.depth * input.height,
+    maxWidth,
+    maxDepth,
+    maxHeight,
+    maxFloor,
+    maxVolume,
     usedFloor: 0,
     usedRequiredVolume: 0,
     surfaceCapacity: 0,

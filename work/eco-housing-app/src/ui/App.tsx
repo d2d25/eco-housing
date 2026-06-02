@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEve
 import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
 import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKind, surfaceSummary, surfaceUnitsProvided, surfaceUnitsRequired } from "../domain/placementRules";
-import { summarizeEntries } from "../domain/roomScoring";
+import { roomUsesMaterialTier, summarizeEntries } from "../domain/roomScoring";
 import type { EcoModel, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
 import { createTranslator, LANGUAGES, type Language, type Translator } from "./i18n";
@@ -216,10 +216,12 @@ function RoomPage(props: {
 }) {
   const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Outdoor" && room.name !== "Cultural");
+  const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Cultural");
   const tiers = model.roomTiers;
   const optimizationState = useRoomOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems });
   const optimization = optimizationState.optimization;
+  const usesMaterialTier = roomUsesMaterialTier(model, config.roomType);
+  const usesRoomSize = config.roomType !== "Outdoor";
   const roomVolume = config.width * config.depth * config.height;
 
   return (
@@ -251,25 +253,29 @@ function RoomPage(props: {
       </div>
 
       <section className="setup-panel">
-        <div className="field-grid">
-          <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
-          <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
-          <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
-        </div>
-        <div className="segmented">
-          <span>{t("roomTier")}</span>
-          <div>{tiers.map((tier) => <button key={tier.tier} className={config.roomTier === tier.tier ? "active" : ""} onClick={() => update({ roomTier: tier.tier })}>T{tier.tier}<small>{tier.softCap}/{tier.hardCap}</small></button>)}</div>
-        </div>
         <div className="segmented">
           <span>{t("roomType")}</span>
           <div>{playableRooms.map((room) => <button key={room.name} className={config.roomType === room.name ? "active" : ""} onClick={() => update({ roomType: room.name })}>{displayCategoryName(model, room.name, language)}</button>)}</div>
         </div>
+        {usesMaterialTier && (
+          <div className="segmented">
+            <span>{t("roomTier")}</span>
+            <div>{tiers.map((tier) => <button key={tier.tier} className={config.roomTier === tier.tier ? "active" : ""} onClick={() => update({ roomTier: tier.tier })}>T{tier.tier}<small>{tier.softCap}/{tier.hardCap}</small></button>)}</div>
+          </div>
+        )}
+        {usesRoomSize && (
+          <div className="field-grid">
+            <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
+            <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
+            <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
+          </div>
+        )}
       </section>
 
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
       {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
+        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} usesRoomSize={usesRoomSize} />
       )}
     </section>
   );
@@ -425,7 +431,27 @@ function readClassArray(value: unknown, field: string, t: Translator) {
   return readObjectArray(value, field, t).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`, t));
 }
 
-function RoomOptimizationResults({ t, language, model, optimization, width, depth, height, roomVolume }: { t: Translator; language: Language; model: EcoModel; optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
+function RoomOptimizationResults({
+  t,
+  language,
+  model,
+  optimization,
+  width,
+  depth,
+  height,
+  roomVolume,
+  usesRoomSize,
+}: {
+  t: Translator;
+  language: Language;
+  model: EcoModel;
+  optimization: RoomOptimization;
+  width: number;
+  depth: number;
+  height: number;
+  roomVolume: number;
+  usesRoomSize: boolean;
+}) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
   const objectFloor = estimateObjectFloor(optimization.entries);
@@ -435,7 +461,7 @@ function RoomOptimizationResults({ t, language, model, optimization, width, dept
     <>
       <section className="score-grid">
         <div className="score-card primary"><span>{t("usefulRoomTotal")}</span><strong>{score.capped.toFixed(1)}</strong><small>{score.raw.toFixed(1)} {t("raw")} | {score.afterSupportCaps.toFixed(1)} {t("beforeTier")}</small></div>
-        <div className="score-card"><span>{t("activeTier")}</span><strong>T{score.tier?.tier ?? "?"}</strong><small>{t("soft")} {score.tier?.softCap ?? "?"} | {t("hard")} {score.tier?.hardCap ?? "?"} | {t("return")} {score.tier ? Math.round(score.tier.diminishingReturnPercent * 100) : "?"}%</small></div>
+        <div className="score-card"><span>{score.tier ? t("activeTier") : t("materialTierNotUsed")}</span>{score.tier ? <><strong>T{score.tier.tier}</strong><small>{t("soft")} {score.tier.softCap} | {t("hard")} {score.tier.hardCap} | {t("return")} {Math.round(score.tier.diminishingReturnPercent * 100)}%</small></> : <><strong>-</strong><small>{t("outdoorNoMaterialCap")}</small></>}</div>
       </section>
 
       <section className="trace-grid">
@@ -446,9 +472,9 @@ function RoomOptimizationResults({ t, language, model, optimization, width, dept
       </section>
 
       <section className="fit-grid">
-        <div><strong>{width}x{depth}x{height}</strong><span>{t("roomSize")}</span></div>
-        <div className={objectFloor > width * depth ? "bad" : ""}><strong>{objectFloor}/{width * depth}</strong><span>{t("objectFloor")}</span></div>
-        <div className={requiredVolume > roomVolume ? "bad" : ""}><strong>{requiredVolume}/{roomVolume}</strong><span>{t("requiredVolumeVsRoom")}</span></div>
+        {usesRoomSize ? <div><strong>{width}x{depth}x{height}</strong><span>{t("roomSize")}</span></div> : <div><strong>-</strong><span>{t("outdoorNoSize")}</span></div>}
+        {usesRoomSize ? <div className={objectFloor > width * depth ? "bad" : ""}><strong>{objectFloor}/{width * depth}</strong><span>{t("objectFloor")}</span></div> : <div><strong>{objectFloor}</strong><span>{t("objectFloor")}</span></div>}
+        {usesRoomSize ? <div className={requiredVolume > roomVolume ? "bad" : ""}><strong>{requiredVolume}/{roomVolume}</strong><span>{t("requiredVolumeVsRoom")}</span></div> : <div><strong>{requiredVolume}</strong><span>{t("requiredVolume")}</span></div>}
         <div className={surface.used > surface.capacity ? "bad" : ""}><strong>{surface.used}/{surface.capacity}</strong><span>{t("placedSurfaceVsAvailable")}</span></div>
       </section>
 

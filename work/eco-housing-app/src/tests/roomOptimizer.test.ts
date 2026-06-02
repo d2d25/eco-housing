@@ -4,7 +4,7 @@ import path from "node:path";
 import { buildModel } from "../domain/model";
 import { effectiveFloorArea, floorAreaWhenOnSurface, hasSurfaceTag, isSmallEstimatedPlaceable, surfaceUnitsRequired } from "../domain/placementRules";
 import { roomOptimization } from "../domain/roomOptimizer";
-import { applyTierCap, compatibleCategoriesForRoom, diminishingMultiplier, supportCapPercentForCategory } from "../domain/roomScoring";
+import { applyTierCap, compatibleCategoriesForRoom, diminishingMultiplier, roomUsesMaterialTier, supportCapPercentForCategory } from "../domain/roomScoring";
 import type { EcoData, EcoModel, HousingItem, RoomInput } from "../domain/types";
 
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -152,6 +152,17 @@ describe("Room optimizer behavior", () => {
 
     expect(result.entries.some((entry) => entry.item.friendlyName === "Ashlar Stone Fireplace")).toBe(true);
     expect(result.entries.some((entry) => entry.item.friendlyName === "Ashlar Basalt Fireplace")).toBe(false);
+  });
+
+  test("optimizes Outdoor without room size or material tier cap", () => {
+    const result = roomOptimization(model, baseInput({ roomType: "Outdoor", tier: 1, width: 1, depth: 1, height: 1 }));
+
+    expect(roomUsesMaterialTier(model, "Outdoor")).toBe(false);
+    expect(result.score.tier).toBeNull();
+    expect(result.score.capped).toBe(result.score.afterSupportCaps);
+    expect(result.entries.length).toBeGreaterThan(0);
+    const compatible = compatibleCategoriesForRoom(model, "Outdoor")!;
+    expect(result.entries.every((entry) => compatible.has(entry.item.category))).toBe(true);
   });
 
   test("blocks objects taller than the room", () => {
