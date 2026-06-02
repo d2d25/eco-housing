@@ -39,7 +39,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .brand h1, .brand p, h2, h3, p { margin: 0; }
 .brand h1 { font-size: 20px; }
 .brand p, .eyebrow, small, .stats span, .page-actions span { color: var(--muted); font-size: 12px; }
-.mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 8px; background: var(--accent); color: white; font-weight: 800; }
+.brand-logo { width: 48px; height: 48px; display: block; flex: 0 0 auto; border-radius: 10px; box-shadow: 0 10px 24px rgba(47, 125, 85, 0.22); overflow: hidden; }
+.brand-logo svg { display: block; width: 100%; height: 100%; }
 
 .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
 .tabs button, .button-row button, .page-actions button, .modal-tools button {

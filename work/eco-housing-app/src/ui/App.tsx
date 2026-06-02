@@ -61,7 +61,7 @@ export function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="mark">E</span>
+          <BrandLogo />
           <div>
             <h1>Eco Housing</h1>
             <p>Piece + objets - {APP_VERSION}</p>
@@ -106,6 +106,21 @@ export function App() {
       {ownedOpen && <OwnedItemsModal model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
       {allowedOpen && <AllowedItemsModal model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
     </div>
+  );
+}
+
+function BrandLogo() {
+  return (
+    <span className="brand-logo" aria-hidden="true">
+      <svg viewBox="0 0 96 96" role="img">
+        <rect width="96" height="96" rx="18" fill="#2F7D55" />
+        <path d="M18 46L48 22L78 46V78H18V46Z" fill="#F7F8F2" />
+        <path d="M28 50L48 34L68 50V72H28V50Z" fill="#DDECD5" />
+        <path d="M39 72V55H57V72" fill="#2F7D55" />
+        <path d="M18 46L48 22L78 46" stroke="#173B2A" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M35 57H43M53 57H61" stroke="#173B2A" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    </span>
   );
 }
 
