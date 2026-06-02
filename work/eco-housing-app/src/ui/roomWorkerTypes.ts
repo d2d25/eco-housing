@@ -6,6 +6,8 @@ export interface SerializedRoomInput {
   width: number;
   depth: number;
   height: number;
+  sizeMode?: RoomInput["sizeMode"];
+  materialBudget?: number | null;
   selectedSkills: SkillClass[];
   ownedItems: [ItemClass, number][];
   disabledItems: ItemClass[];
@@ -28,6 +30,8 @@ export function serializeRoomInput(input: RoomInput): SerializedRoomInput {
     width: input.width,
     depth: input.depth,
     height: input.height,
+    sizeMode: input.sizeMode,
+    materialBudget: input.materialBudget,
     selectedSkills: [...input.selectedSkills],
     ownedItems: [...input.ownedItems.entries()],
     disabledItems: [...input.disabledItems],
@@ -42,6 +46,8 @@ export function deserializeRoomInput(input: SerializedRoomInput): RoomInput {
     width: input.width,
     depth: input.depth,
     height: input.height,
+    sizeMode: input.sizeMode,
+    materialBudget: input.materialBudget,
     selectedSkills: new Set(input.selectedSkills),
     ownedItems: new Map(input.ownedItems),
     disabledItems: new Set(input.disabledItems),

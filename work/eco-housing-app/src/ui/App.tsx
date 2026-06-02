@@ -222,7 +222,11 @@ function RoomPage(props: {
   const optimization = optimizationState.optimization;
   const usesMaterialTier = roomUsesMaterialTier(model, config.roomType);
   const usesRoomSize = config.roomType !== "Outdoor";
-  const roomVolume = config.width * config.depth * config.height;
+  const resolvedSize = optimization?.resolvedSize ?? null;
+  const resultWidth = resolvedSize?.width ?? config.width;
+  const resultDepth = resolvedSize?.depth ?? config.depth;
+  const resultHeight = resolvedSize?.height ?? config.height;
+  const roomVolume = resolvedSize?.volume ?? config.width * config.depth * config.height;
 
   return (
     <section className="room-page">
@@ -264,18 +268,42 @@ function RoomPage(props: {
           </div>
         )}
         {usesRoomSize && (
-          <div className="field-grid">
-            <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
-            <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
-            <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
-          </div>
+          <details className="advanced-room-options">
+            <summary>{t("roomSizeOptions")}</summary>
+            <div className="size-mode-grid">
+              <label className="radio-card">
+                <input type="radio" checked={config.roomSizeMode === "auto"} onChange={() => update({ roomSizeMode: "auto" })} />
+                <span><strong>{t("autoRoomSize")}</strong><small>{t("autoRoomSizeHelp")}</small></span>
+              </label>
+              <label className="radio-card">
+                <input type="radio" checked={config.roomSizeMode === "materials"} onChange={() => update({ roomSizeMode: "materials" })} />
+                <span><strong>{t("materialBudgetMode")}</strong><small>{t("materialBudgetModeHelp")}</small></span>
+              </label>
+              <label className="radio-card">
+                <input type="radio" checked={config.roomSizeMode === "manual"} onChange={() => update({ roomSizeMode: "manual" })} />
+                <span><strong>{t("manualRoomSize")}</strong><small>{t("manualRoomSizeHelp")}</small></span>
+              </label>
+            </div>
+            {config.roomSizeMode === "materials" && (
+              <div className="field-grid one">
+                <NumberField label={t("materialBudget")} value={config.materialBudget} min={1} max={2000} onChange={(materialBudget) => update({ materialBudget })} />
+              </div>
+            )}
+            {config.roomSizeMode === "manual" && (
+              <div className="field-grid">
+                <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
+                <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
+                <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
+              </div>
+            )}
+          </details>
         )}
       </section>
 
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
       {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} usesRoomSize={usesRoomSize} />
+        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} />
       )}
     </section>
   );
@@ -299,10 +327,13 @@ function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set
     roomInput: {
       roomType: config.roomType,
       tier: config.roomTier,
+      sizeMode: config.roomSizeMode,
+      materialBudget: config.materialBudget,
       width: config.width,
       depth: config.depth,
       height: config.height,
       volume: config.width * config.depth * config.height,
+      resolvedSize: optimization.resolvedSize,
     },
     selectedSkills: [...selectedSkills].sort().map((skillClass) => ({
       className: skillClass,
@@ -400,11 +431,17 @@ function parseImportedIssueJson(data: unknown, model: EcoModel, t: Translator): 
       width: readNumber(roomInput.width, "roomInput.width", t),
       depth: readNumber(roomInput.depth, "roomInput.depth", t),
       height: readNumber(roomInput.height, "roomInput.height", t),
+      roomSizeMode: readRoomSizeMode(roomInput.sizeMode),
+      materialBudget: Number(roomInput.materialBudget ?? DEFAULT_CONFIG.materialBudget),
       selectedSkills,
       disabledItems,
     },
     ownedItems,
   };
+}
+
+function readRoomSizeMode(value: unknown): AppConfig["roomSizeMode"] {
+  return value === "auto" || value === "manual" || value === "materials" ? value : DEFAULT_CONFIG.roomSizeMode;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -10,6 +10,8 @@ describe("room worker serialization", () => {
       width: 4,
       depth: 5,
       height: 3,
+      sizeMode: "materials",
+      materialBudget: 120,
       selectedSkills: new Set(["LoggingSkill", "CarpentrySkill"]),
       ownedItems: new Map([["StumpLatrineItem", 2], ["TorchStandItem", 1]]),
       disabledItems: new Set(["ChandelierItem"]),
@@ -29,6 +31,8 @@ describe("room worker serialization", () => {
     expect(rebuilt.width).toBe(4);
     expect(rebuilt.depth).toBe(5);
     expect(rebuilt.height).toBe(3);
+    expect(rebuilt.sizeMode).toBe("materials");
+    expect(rebuilt.materialBudget).toBe(120);
     expect([...rebuilt.selectedSkills]).toEqual(["LoggingSkill", "CarpentrySkill"]);
     expect([...rebuilt.ownedItems.entries()]).toEqual([["StumpLatrineItem", 2], ["TorchStandItem", 1]]);
     expect([...rebuilt.disabledItems]).toEqual(["ChandelierItem"]);

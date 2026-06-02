@@ -165,6 +165,22 @@ describe("Room optimizer behavior", () => {
     expect(result.entries.every((entry) => compatible.has(entry.item.category))).toBe(true);
   });
 
+  test("auto room size computes a minimum fitting room after maximizing score", () => {
+    const result = roomOptimization(model, baseInput({ roomType: "Bathroom", tier: 1, width: 1, depth: 1, height: 2, sizeMode: "auto" }));
+
+    expect(result.resolvedSize?.mode).toBe("auto");
+    expect(result.resolvedSize?.floorArea).toBeGreaterThanOrEqual(result.constraints.usedFloor);
+    expect(result.resolvedSize?.volume).toBeGreaterThanOrEqual(result.constraints.usedRequiredVolume);
+    expect(result.score.capped).toBeGreaterThan(0);
+  });
+
+  test("material budget mode returns a room within the provided material count", () => {
+    const result = roomOptimization(model, baseInput({ roomType: "Bathroom", tier: 1, sizeMode: "materials", materialBudget: 80 }));
+
+    expect(result.resolvedSize?.mode).toBe("materials");
+    expect(result.resolvedSize?.materialCount).toBeLessThanOrEqual(80);
+  });
+
   test("blocks objects taller than the room", () => {
     const result = roomOptimization(model, baseInput({ roomType: "Living Room", tier: 5, width: 8, depth: 8, height: 1 }));
     expect(result.entries.every((entry) => (entry.item.occupancy?.height ?? 0) <= 1)).toBe(true);

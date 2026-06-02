@@ -179,6 +179,8 @@ export interface RoomInput {
   width: number;
   depth: number;
   height: number;
+  sizeMode?: "auto" | "manual" | "materials";
+  materialBudget?: number | null;
   selectedSkills: Set<SkillClass>;
   ownedItems: Map<ItemClass, number>;
   disabledItems: Set<ItemClass>;
@@ -234,6 +236,17 @@ export interface RoomOptimization {
   score: ScoreSummary;
   entries: OptimizationEntry[];
   constraints: RoomConstraints;
+  resolvedSize?: ResolvedRoomSize | null;
+}
+
+export interface ResolvedRoomSize {
+  width: number;
+  depth: number;
+  height: number;
+  volume: number;
+  floorArea: number;
+  materialCount: number;
+  mode: "auto" | "manual" | "materials";
 }
 
 export interface RoomConstraints {

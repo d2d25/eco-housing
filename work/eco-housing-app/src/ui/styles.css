@@ -108,6 +108,7 @@ summary { display: flex; justify-content: space-between; font-weight: 800; curso
 }
 .setup-panel { padding: 14px; display: grid; gap: 14px; margin-bottom: 12px; }
 .field-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.field-grid.one { grid-template-columns: minmax(220px, 360px); }
 label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 input, select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); }
 .file-input { display: none; }
@@ -117,6 +118,35 @@ input, select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid va
 .segmented > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .segmented button { min-width: 72px; min-height: 42px; border: 1px solid var(--line); border-radius: 7px; background: white; font-weight: 800; }
 .segmented small { display: block; }
+.advanced-room-options {
+  padding: 10px;
+  background: #fbfcf8;
+}
+.advanced-room-options summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+.advanced-room-options[open] {
+  display: grid;
+  gap: 12px;
+}
+.size-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px;
+}
+.radio-card {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+}
+.radio-card input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.radio-card small { display: block; margin-top: 3px; color: var(--muted); font-weight: 500; }
 
 .score-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .score-card { padding: 16px; }

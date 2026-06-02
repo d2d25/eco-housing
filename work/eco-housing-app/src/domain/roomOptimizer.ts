@@ -1,6 +1,6 @@
 import { createCraftResolver } from "./craftResolver";
 import { byName } from "./model";
-import { canPlaceOnFloorWhenNoSurface, effectiveFloorArea, floorAreaWhenOnSurface, itemFitsRoomDimensions, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
+import { canPlaceOnFloorWhenNoSurface, effectiveFloorArea, floorAreaWhenOnSurface, itemFitsRoomDimensions, itemFootprint, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
 import { compatibleCategoriesForRoom, diminishingMultiplier, estimateEntriesScore, scoreSummary, supportCapPercentForCategory } from "./roomScoring";
 import type { EcoModel, HousingItem, ItemClass, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization } from "./types";
 
@@ -9,6 +9,12 @@ const MAX_ENTRIES_PER_CATEGORY = 8;
 const BEAM_WIDTH = 80;
 const CANDIDATE_LIMIT = 24;
 const DEFAULT_OBJECTIVE: OptimizationObjective = { kind: "maximizeUsefulRoomScore" };
+const AUTO_MAX_WIDTH = 24;
+const AUTO_MAX_DEPTH = 24;
+const AUTO_MAX_HEIGHT = 8;
+const MATERIAL_MAX_WIDTH = 16;
+const MATERIAL_MAX_DEPTH = 16;
+const MATERIAL_MAX_HEIGHT = 6;
 
 interface OptimizationContext {
   model: EcoModel;
@@ -37,15 +43,31 @@ interface RoomPlan {
 }
 
 export function roomOptimization(model: EcoModel, input: RoomInput): RoomOptimization {
+  if (input.roomType !== "Outdoor" && input.sizeMode === "materials") return optimizeWithinMaterialBudget(model, input);
   const context = buildOptimizationContext(model, input);
   const best = selectBestRoomPlan(context);
+  const entries = best.groups.flatMap((group) => group.entries);
+  const resolvedSize = resolveRoomSize(input, entries);
+  const constraints = resolvedSize ? { ...best.constraints, maxWidth: resolvedSize.width, maxDepth: resolvedSize.depth, maxHeight: resolvedSize.height, maxFloor: resolvedSize.floorArea, maxVolume: resolvedSize.volume } : best.constraints;
   return {
     roomName: input.roomType,
     groups: best.groups,
     score: scoreSummary(model, best.groups, input.tier, input.roomType),
-    entries: best.groups.flatMap((group) => group.entries),
-    constraints: best.constraints,
+    entries,
+    constraints,
+    resolvedSize,
   };
+}
+
+function optimizeWithinMaterialBudget(model: EcoModel, input: RoomInput): RoomOptimization {
+  const budget = Math.max(0, Math.floor(input.materialBudget ?? 0));
+  if (budget <= 0) return roomOptimization(model, { ...input, sizeMode: "manual", width: 1, depth: 1, height: 2 });
+
+  const candidate = materialBudgetSizeCandidate(budget);
+  if (!candidate) return roomOptimization(model, { ...input, sizeMode: "manual", width: 1, depth: 1, height: 2 });
+  const optimization = roomOptimization(model, { ...input, sizeMode: "manual", width: candidate.width, depth: candidate.depth, height: candidate.height });
+  optimization.resolvedSize = candidate;
+  return optimization;
 }
 
 export function buildOptimizationContext(model: EcoModel, input: RoomInput): OptimizationContext {
@@ -323,11 +345,12 @@ function storeBestCategoryPlan(plans: Map<string, CategoryPlan>, plan: CategoryP
 }
 
 function createInitialConstraints(input: RoomInput): RoomConstraints {
-  const maxWidth = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.width;
-  const maxDepth = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.depth;
-  const maxHeight = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.height;
-  const maxFloor = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.width * input.depth;
-  const maxVolume = input.roomType === "Outdoor" ? Number.POSITIVE_INFINITY : input.width * input.depth * input.height;
+  const unlimited = input.roomType === "Outdoor" || input.sizeMode === "auto";
+  const maxWidth = unlimited ? Number.POSITIVE_INFINITY : input.width;
+  const maxDepth = unlimited ? Number.POSITIVE_INFINITY : input.depth;
+  const maxHeight = unlimited ? Number.POSITIVE_INFINITY : input.height;
+  const maxFloor = unlimited ? Number.POSITIVE_INFINITY : input.width * input.depth;
+  const maxVolume = unlimited ? Number.POSITIVE_INFINITY : input.width * input.depth * input.height;
   return {
     maxWidth,
     maxDepth,
@@ -341,6 +364,87 @@ function createInitialConstraints(input: RoomInput): RoomConstraints {
     ownedUsage: new Map(),
     propertyTypeCounts: new Map(),
   };
+}
+
+function resolveRoomSize(input: RoomInput, entries: OptimizationEntry[]) {
+  if (input.roomType === "Outdoor") return null;
+  if (input.sizeMode === "manual" || input.sizeMode === "materials") {
+    return {
+      width: input.width,
+      depth: input.depth,
+      height: input.height,
+      volume: input.width * input.depth * input.height,
+      floorArea: input.width * input.depth,
+      materialCount: roomMaterialCount(input.width, input.depth, input.height),
+      mode: input.sizeMode ?? "manual",
+    };
+  }
+  return findMinimumRoomSize(entries, "auto");
+}
+
+function findMinimumRoomSize(entries: OptimizationEntry[], mode: "auto" | "materials") {
+  const requiredFloor = entries.reduce((total, entry) => total + floorAreaWhenOnSurface(entry.item) + (entry.extraFloorFromSurfaceOverflow ?? 0), 0);
+  const requiredVolume = entries.reduce((total, entry) => total + (entry.item.requirements?.requiredRoomVolume ?? 0), 0);
+  const minDimensions = entries.reduce((limits, entry) => {
+    const footprint = itemFootprint(entry.item);
+    return {
+      width: Math.max(limits.width, footprint.width || 1),
+      depth: Math.max(limits.depth, footprint.depth || 1),
+      height: Math.max(limits.height, footprint.height || 2),
+    };
+  }, { width: 1, depth: 1, height: 2 });
+
+  let best: ReturnType<typeof sizeCandidate> | null = null;
+  for (let height = minDimensions.height; height <= AUTO_MAX_HEIGHT; height += 1) {
+    for (let width = minDimensions.width; width <= AUTO_MAX_WIDTH; width += 1) {
+      for (let depth = minDimensions.depth; depth <= AUTO_MAX_DEPTH; depth += 1) {
+        const floorArea = width * depth;
+        if (floorArea < requiredFloor) continue;
+        if (floorArea * height < requiredVolume) continue;
+        if (!entries.every((entry) => itemFitsRoomDimensions(entry.item, { maxWidth: width, maxDepth: depth, maxHeight: height }))) continue;
+        const candidate = sizeCandidate(width, depth, height, mode);
+        if (!best || compareRoomSizes(candidate, best) < 0) best = candidate;
+      }
+    }
+  }
+
+  return best ?? sizeCandidate(minDimensions.width, minDimensions.depth, minDimensions.height, mode);
+}
+
+function sizeCandidate(width: number, depth: number, height: number, mode: "auto" | "materials") {
+  return {
+    width,
+    depth,
+    height,
+    volume: width * depth * height,
+    floorArea: width * depth,
+    materialCount: roomMaterialCount(width, depth, height),
+    mode,
+  };
+}
+
+function compareRoomSizes(a: ReturnType<typeof sizeCandidate>, b: ReturnType<typeof sizeCandidate>) {
+  return a.materialCount - b.materialCount || a.floorArea - b.floorArea || a.volume - b.volume || a.width - b.width || a.depth - b.depth;
+}
+
+function roomMaterialCount(width: number, depth: number, height: number) {
+  return (2 * width * depth) + (2 * height * (width + depth));
+}
+
+function materialBudgetSizeCandidate(budget: number) {
+  const candidates = [];
+  for (let height = 2; height <= MATERIAL_MAX_HEIGHT; height += 1) {
+    for (let width = 1; width <= MATERIAL_MAX_WIDTH; width += 1) {
+      for (let depth = width; depth <= MATERIAL_MAX_DEPTH; depth += 1) {
+        const candidate = sizeCandidate(width, depth, height, "materials");
+        if (candidate.materialCount <= budget) candidates.push(candidate);
+      }
+    }
+  }
+
+  return candidates
+    .sort((a, b) => b.volume - a.volume || b.floorArea - a.floorArea || a.materialCount - b.materialCount || Math.abs(a.width - a.depth) - Math.abs(b.width - b.depth))
+    .at(0) ?? null;
 }
 
 function emptyCategoryPlan(constraints: RoomConstraints): CategoryPlan {
