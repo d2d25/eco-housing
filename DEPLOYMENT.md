@@ -1,6 +1,27 @@
 # Deployment
 
-## Recommended Option: Vercel
+## Recommended Option: GitHub Pages
+
+The repository includes `.github/workflows/deploy-pages.yml`.
+
+After pushing the repository to GitHub:
+
+1. Open the repository settings.
+2. Go to **Pages**.
+3. Set **Source** to **GitHub Actions**.
+4. Push to `master` or `main`, or run **Deploy GitHub Pages** manually from the **Actions** tab.
+5. Share the generated GitHub Pages URL with beta testers.
+
+The workflow:
+
+- installs the React app dependencies;
+- runs the test suite;
+- builds the app into `outputs/`;
+- publishes `outputs/` as the static site.
+
+The workflow does **not** extract Eco data or icons because the CI machine does not have a local Eco installation. Commit updated `outputs/eco-data.json` and `outputs/assets/eco-icons` after running the extractor locally.
+
+## Alternative Option: Vercel
 
 The repository contains `vercel.json`, so Vercel can deploy it without advanced manual configuration.
 
@@ -17,7 +38,7 @@ After importing the GitHub repository in Vercel:
 3. Deploy.
 4. Share the `.vercel.app` URL with beta testers.
 
-## Beta Previews
+## Vercel Beta Previews
 
 To test a change without touching the main beta site:
 

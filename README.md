@@ -42,14 +42,19 @@ See [ISSUES.md](./ISSUES.md) for the issue instructions.
 
 ## Recommended Beta Deployment
 
-### Vercel
+### GitHub Pages
 
 1. Create a GitHub repository with this code.
-2. Import the repository in Vercel.
-3. Let Vercel use `vercel.json`.
-4. The site is served from `outputs/`.
+2. In repository settings, open **Pages**.
+3. Set **Source** to **GitHub Actions**.
+4. Push to `master` or `main`.
+5. Share the GitHub Pages URL with beta testers.
 
-Every push to the main branch creates a deployment. Pull requests can also produce preview URLs.
+The included `.github/workflows/deploy-pages.yml` workflow builds and publishes `outputs/`.
+
+### Vercel
+
+The repository also contains `vercel.json`, so Vercel can deploy the same static build.
 
 ### Cloudflare Pages
 
