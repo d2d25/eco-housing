@@ -5,6 +5,7 @@ import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKi
 import { summarizeEntries } from "../domain/roomScoring";
 import type { EcoModel, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
+import { createTranslator, LANGUAGES, type Translator } from "./i18n";
 import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems, type ActiveView, type AppConfig } from "./storage";
 import { useRoomOptimizationWorker } from "./useRoomOptimizationWorker";
 
@@ -20,6 +21,7 @@ export function App() {
   const [ownedItems, setOwnedItems] = useState<Map<ItemClass, number>>(() => loadOwnedItems());
   const [ownedOpen, setOwnedOpen] = useState(false);
   const [allowedOpen, setAllowedOpen] = useState(false);
+  const t = useMemo(() => createTranslator(config.language), [config.language]);
 
   useEffect(() => {
     loadEcoModel().then(setModel).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
@@ -27,6 +29,9 @@ export function App() {
 
   useEffect(() => saveConfig(config), [config]);
   useEffect(() => saveOwnedItems(ownedItems), [ownedItems]);
+  useEffect(() => {
+    document.documentElement.lang = config.language;
+  }, [config.language]);
 
   const selectedSkills = useMemo(() => new Set(config.selectedSkills), [config.selectedSkills]);
   const disabledItems = useMemo(() => new Set(config.disabledItems), [config.disabledItems]);
@@ -43,9 +48,9 @@ export function App() {
 
   async function importExportJson(file: File) {
     try {
-      if (!model) throw new Error("Cannot import before Eco data is loaded.");
+      if (!model) throw new Error(t("importBeforeData"));
       const raw = await file.text();
-      const imported = parseImportedIssueJson(JSON.parse(raw), model);
+      const imported = parseImportedIssueJson(JSON.parse(raw), model, t);
       setConfig((current) => ({ ...current, ...imported.config, activeView: "room" }));
       setOwnedItems(imported.ownedItems);
     } catch (err) {
@@ -54,7 +59,7 @@ export function App() {
   }
 
   if (error) return <main className="boot-error">{error}</main>;
-  if (!model) return <main className="boot-error">Chargement des donnees Eco...</main>;
+  if (!model) return <main className="boot-error">{t("loadingEcoData")}</main>;
 
   return (
     <div className="shell">
@@ -63,31 +68,33 @@ export function App() {
           <BrandLogo />
           <div>
             <h1>Eco Housing</h1>
-            <p>Piece + objets - {APP_VERSION}</p>
+            <p>{t("appSubtitle")} - {APP_VERSION}</p>
           </div>
         </div>
         <nav className="tabs" aria-label="Navigation">
-          <button className={config.activeView === "room" ? "active" : ""} onClick={() => update({ activeView: "room" })}>Piece</button>
-          <button className={config.activeView === "objects" ? "active" : ""} onClick={() => update({ activeView: "objects" })}>Objets</button>
+          <button className={config.activeView === "room" ? "active" : ""} onClick={() => update({ activeView: "room" })}>{t("viewRoom")}</button>
+          <button className={config.activeView === "objects" ? "active" : ""} onClick={() => update({ activeView: "objects" })}>{t("viewObjects")}</button>
         </nav>
-        <SkillPanel model={model} availableSkills={availableSkills} selectedSkills={selectedSkills} onChange={(next) => update({ selectedSkills: [...next] })} />
+        <SkillPanel t={t} model={model} availableSkills={availableSkills} selectedSkills={selectedSkills} onChange={(next) => update({ selectedSkills: [...next] })} />
       </aside>
 
       <main className="app">
         <header className="toolbar">
           <div>
-            <p className="eyebrow">Donnees extraites du jeu</p>
-            <h2>{config.activeView === "room" ? "Optimiser une piece" : "Catalogue des objets"}</h2>
+            <p className="eyebrow">{t("dataSource")}</p>
+            <h2>{config.activeView === "room" ? t("roomTitle") : t("objectsTitle")}</h2>
           </div>
           <div className="stats">
-            <div><strong>{model.housingItems.length}</strong><span>housing</span></div>
-            <div><strong>{availableHousingCount}</strong><span>objets dispo</span></div>
+            <LanguageSwitcher language={config.language} onChange={(language) => update({ language })} />
+            <div><strong>{model.housingItems.length}</strong><span>{t("housingCount")}</span></div>
+            <div><strong>{availableHousingCount}</strong><span>{t("availableObjectsCount")}</span></div>
           </div>
         </header>
 
         {config.activeView === "room" ? (
           <RoomPage
             model={model}
+            t={t}
             config={config}
             update={update}
             selectedSkills={selectedSkills}
@@ -98,12 +105,12 @@ export function App() {
             onImportJson={importExportJson}
           />
         ) : (
-          <ObjectsPage model={model} config={config} update={update} selectedSkills={selectedSkills} />
+          <ObjectsPage model={model} t={t} config={config} update={update} selectedSkills={selectedSkills} />
         )}
       </main>
 
-      {ownedOpen && <OwnedItemsModal model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
-      {allowedOpen && <AllowedItemsModal model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
+      {ownedOpen && <OwnedItemsModal t={t} model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
+      {allowedOpen && <AllowedItemsModal t={t} model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
     </div>
   );
 }
@@ -123,12 +130,26 @@ function BrandLogo() {
   );
 }
 
+function LanguageSwitcher({ language, onChange }: { language: AppConfig["language"]; onChange: (language: AppConfig["language"]) => void }) {
+  return (
+    <div className="language-switcher" role="group" aria-label="Language">
+      {LANGUAGES.map((entry) => (
+        <button key={entry.code} className={language === entry.code ? "active" : ""} onClick={() => onChange(entry.code)}>
+          {entry.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SkillPanel({
+  t,
   model,
   availableSkills,
   selectedSkills,
   onChange,
 }: {
+  t: Translator;
   model: EcoModel;
   availableSkills: typeof model.skills;
   selectedSkills: Set<SkillClass>;
@@ -137,12 +158,12 @@ function SkillPanel({
   const groups = useMemo(() => {
     const byGroup = new Map<string, typeof model.skills>();
     for (const skill of availableSkills) {
-      const group = skill.professionGroup ?? "Autres";
+      const group = skill.professionGroup ?? t("otherGroup");
       if (!byGroup.has(group)) byGroup.set(group, []);
       byGroup.get(group)!.push(skill);
     }
     return [...byGroup.entries()].sort(([a], [b]) => professionOrder(a) - professionOrder(b));
-  }, [availableSkills, model.skills]);
+  }, [availableSkills, model.skills, t]);
 
   function toggle(skillClass: SkillClass) {
     const next = new Set(selectedSkills);
@@ -154,10 +175,10 @@ function SkillPanel({
   return (
     <section className="skills">
       <div className="panel-head">
-        <h3>Metiers</h3>
+        <h3>{t("skills")}</h3>
         <div className="button-row">
-          <button onClick={() => onChange(new Set(availableSkills.map((skill) => skill.className)))}>Tout</button>
-          <button onClick={() => onChange(new Set())}>Reset</button>
+          <button onClick={() => onChange(new Set(availableSkills.map((skill) => skill.className)))}>{t("all")}</button>
+          <button onClick={() => onChange(new Set())}>{t("reset")}</button>
         </div>
       </div>
       <div className="skill-list">
@@ -171,7 +192,7 @@ function SkillPanel({
               </label>
             ))}
           </details>
-        )) : <div className="empty">Aucun metier disponible.</div>}
+        )) : <div className="empty">{t("noSkillAvailable")}</div>}
       </div>
     </section>
   );
@@ -179,6 +200,7 @@ function SkillPanel({
 
 function RoomPage(props: {
   model: EcoModel;
+  t: Translator;
   config: AppConfig;
   update: (partial: Partial<AppConfig>) => void;
   selectedSkills: Set<SkillClass>;
@@ -188,7 +210,7 @@ function RoomPage(props: {
   onOpenAllowed: () => void;
   onImportJson: (file: File) => void;
 }) {
-  const { model, config, update, selectedSkills, disabledItems, ownedItems } = props;
+  const { model, t, config, update, selectedSkills, disabledItems, ownedItems } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Outdoor" && room.name !== "Cultural");
   const tiers = model.roomTiers;
@@ -202,13 +224,13 @@ function RoomPage(props: {
         <span className="compatible-categories">
           {optimization ? (
             <>
-              <span>categories compatibles:</span>
-              {optimization.groups.map((group) => <CategoryBadge key={group.category} model={model} category={group.category} />)}
+              <span>{t("compatibleCategories")}</span>
+              {optimization.groups.map((group) => <CategoryBadge key={group.category} t={t} model={model} category={group.category} />)}
             </>
-          ) : "calcul en cours"}
+          ) : t("calculating")}
         </span>
-        <button disabled={!optimization} onClick={() => optimization && exportIssueJson(model, config, selectedSkills, ownedItems, disabledItems, optimization)}>Export</button>
-        <button onClick={() => importInputRef.current?.click()}>Import</button>
+        <button disabled={!optimization} onClick={() => optimization && exportIssueJson(model, config, selectedSkills, ownedItems, disabledItems, optimization)}>{t("export")}</button>
+        <button onClick={() => importInputRef.current?.click()}>{t("import")}</button>
         <input
           ref={importInputRef}
           className="file-input"
@@ -220,30 +242,30 @@ function RoomPage(props: {
             event.currentTarget.value = "";
           }}
         />
-        <button onClick={props.onOpenOwned}>Objets acquis ({[...ownedItems.values()].reduce((a, b) => a + b, 0)})</button>
-        <button onClick={props.onOpenAllowed}>Autorisations</button>
+        <button onClick={props.onOpenOwned}>{t("ownedObjects")} ({[...ownedItems.values()].reduce((a, b) => a + b, 0)})</button>
+        <button onClick={props.onOpenAllowed}>{t("permissions")}</button>
       </div>
 
       <section className="setup-panel">
         <div className="field-grid">
-          <NumberField label="Largeur" value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
-          <NumberField label="Longueur" value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
-          <NumberField label="Hauteur" value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
+          <NumberField label={t("width")} value={config.width} min={1} max={20} onChange={(width) => update({ width })} />
+          <NumberField label={t("depth")} value={config.depth} min={1} max={20} onChange={(depth) => update({ depth })} />
+          <NumberField label={t("height")} value={config.height} min={2} max={8} onChange={(height) => update({ height })} />
         </div>
         <div className="segmented">
-          <span>Tier de la piece</span>
+          <span>{t("roomTier")}</span>
           <div>{tiers.map((tier) => <button key={tier.tier} className={config.roomTier === tier.tier ? "active" : ""} onClick={() => update({ roomTier: tier.tier })}>T{tier.tier}<small>{tier.softCap}/{tier.hardCap}</small></button>)}</div>
         </div>
         <div className="segmented">
-          <span>Type de piece</span>
+          <span>{t("roomType")}</span>
           <div>{playableRooms.map((room) => <button key={room.name} className={config.roomType === room.name ? "active" : ""} onClick={() => update({ roomType: room.name })}>{room.name}</button>)}</div>
         </div>
       </section>
 
-      {optimizationState.status === "loading" && <OptimizationSpinner />}
-      {optimizationState.status === "error" && <OptimizationError message={optimizationState.error} />}
+      {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
+      {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
+        <RoomOptimizationResults t={t} model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
       )}
     </section>
   );
@@ -334,40 +356,40 @@ function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set
   URL.revokeObjectURL(url);
 }
 
-function parseImportedIssueJson(data: unknown, model: EcoModel): { config: Partial<AppConfig>; ownedItems: Map<ItemClass, number> } {
-  if (!isRecord(data)) throw new Error("Invalid import file: expected a JSON object.");
+function parseImportedIssueJson(data: unknown, model: EcoModel, t: Translator): { config: Partial<AppConfig>; ownedItems: Map<ItemClass, number> } {
+  if (!isRecord(data)) throw new Error(t("invalidImportObject"));
 
   const format = isRecord(data.format) ? data.format : null;
   const schemaVersion = Number(format?.schemaVersion ?? 0);
   if (!SUPPORTED_EXPORT_SCHEMA_VERSIONS.has(schemaVersion)) {
-    throw new Error(`Unsupported import schema version: ${schemaVersion || "missing"}. Supported version: ${EXPORT_SCHEMA_VERSION}.`);
+    throw new Error(`${t("unsupportedSchema")} ${schemaVersion || "missing"}. ${t("supportedVersion")} ${EXPORT_SCHEMA_VERSION}.`);
   }
 
   const roomInput = isRecord(data.roomInput) ? data.roomInput : null;
-  if (!roomInput) throw new Error("Invalid import file: missing roomInput.");
+  if (!roomInput) throw new Error(t("missingRoomInput"));
 
   const roomNames = new Set(model.roomCategories.map((room) => room.name));
   const skillClasses = new Set(model.skills.map((skill) => skill.className));
   const itemClasses = new Set(model.housingItems.map((item) => item.itemClass));
-  const roomType = readString(roomInput.roomType, "roomInput.roomType");
-  if (!roomNames.has(roomType)) throw new Error(`Invalid import file: unknown room type "${roomType}".`);
+  const roomType = readString(roomInput.roomType, "roomInput.roomType", t);
+  if (!roomNames.has(roomType)) throw new Error(`${t("unknownRoomType")} "${roomType}".`);
 
-  const selectedSkills = readClassArray(data.selectedSkills, "selectedSkills").filter((skillClass) => skillClasses.has(skillClass));
-  const disabledItems = readClassArray(data.disabledItems, "disabledItems").filter((itemClass) => itemClasses.has(itemClass));
+  const selectedSkills = readClassArray(data.selectedSkills, "selectedSkills", t).filter((skillClass) => skillClasses.has(skillClass));
+  const disabledItems = readClassArray(data.disabledItems, "disabledItems", t).filter((itemClass) => itemClasses.has(itemClass));
   const ownedItems = new Map<ItemClass, number>();
-  for (const entry of readObjectArray(data.ownedItems, "ownedItems")) {
-    const itemClass = readString(entry.itemClass, "ownedItems.itemClass");
-    const quantity = Math.max(0, Math.floor(readNumber(entry.quantity, "ownedItems.quantity")));
+  for (const entry of readObjectArray(data.ownedItems, "ownedItems", t)) {
+    const itemClass = readString(entry.itemClass, "ownedItems.itemClass", t);
+    const quantity = Math.max(0, Math.floor(readNumber(entry.quantity, "ownedItems.quantity", t)));
     if (quantity > 0 && itemClasses.has(itemClass)) ownedItems.set(itemClass, quantity);
   }
 
   return {
     config: {
       roomType,
-      roomTier: readNumber(roomInput.tier, "roomInput.tier"),
-      width: readNumber(roomInput.width, "roomInput.width"),
-      depth: readNumber(roomInput.depth, "roomInput.depth"),
-      height: readNumber(roomInput.height, "roomInput.height"),
+      roomTier: readNumber(roomInput.tier, "roomInput.tier", t),
+      width: readNumber(roomInput.width, "roomInput.width", t),
+      depth: readNumber(roomInput.depth, "roomInput.depth", t),
+      height: readNumber(roomInput.height, "roomInput.height", t),
       selectedSkills,
       disabledItems,
     },
@@ -379,27 +401,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function readString(value: unknown, field: string) {
-  if (typeof value !== "string" || !value) throw new Error(`Invalid import file: missing ${field}.`);
+function readString(value: unknown, field: string, t: Translator) {
+  if (typeof value !== "string" || !value) throw new Error(`${t("missingField")} ${field}.`);
   return value;
 }
 
-function readNumber(value: unknown, field: string) {
+function readNumber(value: unknown, field: string, t: Translator) {
   const number = Number(value);
-  if (!Number.isFinite(number)) throw new Error(`Invalid import file: invalid ${field}.`);
+  if (!Number.isFinite(number)) throw new Error(`${t("invalidField")} ${field}.`);
   return number;
 }
 
-function readObjectArray(value: unknown, field: string) {
-  if (!Array.isArray(value)) throw new Error(`Invalid import file: missing ${field}.`);
+function readObjectArray(value: unknown, field: string, t: Translator) {
+  if (!Array.isArray(value)) throw new Error(`${t("missingField")} ${field}.`);
   return value.filter(isRecord);
 }
 
-function readClassArray(value: unknown, field: string) {
-  return readObjectArray(value, field).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`));
+function readClassArray(value: unknown, field: string, t: Translator) {
+  return readObjectArray(value, field, t).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`, t));
 }
 
-function RoomOptimizationResults({ model, optimization, width, depth, height, roomVolume }: { model: EcoModel; optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
+function RoomOptimizationResults({ t, model, optimization, width, depth, height, roomVolume }: { t: Translator; model: EcoModel; optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
   const objectFloor = estimateObjectFloor(optimization.entries);
@@ -408,33 +430,33 @@ function RoomOptimizationResults({ model, optimization, width, depth, height, ro
   return (
     <>
       <section className="score-grid">
-        <div className="score-card primary"><span>Total utile de la piece</span><strong>{score.capped.toFixed(1)}</strong><small>{score.raw.toFixed(1)} brut | {score.afterSupportCaps.toFixed(1)} avant tier</small></div>
-        <div className="score-card"><span>Tier actif</span><strong>T{score.tier?.tier ?? "?"}</strong><small>soft {score.tier?.softCap ?? "?"} | hard {score.tier?.hardCap ?? "?"} | retour {score.tier ? Math.round(score.tier.diminishingReturnPercent * 100) : "?"}%</small></div>
+        <div className="score-card primary"><span>{t("usefulRoomTotal")}</span><strong>{score.capped.toFixed(1)}</strong><small>{score.raw.toFixed(1)} {t("raw")} | {score.afterSupportCaps.toFixed(1)} {t("beforeTier")}</small></div>
+        <div className="score-card"><span>{t("activeTier")}</span><strong>T{score.tier?.tier ?? "?"}</strong><small>{t("soft")} {score.tier?.softCap ?? "?"} | {t("hard")} {score.tier?.hardCap ?? "?"} | {t("return")} {score.tier ? Math.round(score.tier.diminishingReturnPercent * 100) : "?"}%</small></div>
       </section>
 
       <section className="trace-grid">
-        <Metric label="brut objets" value={score.raw} />
-        <Metric label="apres doublons" value={score.afterDiminishing} delta={-score.duplicateLoss} />
-        <Metric label="apres caps supports" value={score.afterSupportCaps} delta={-score.supportCapLoss} />
-        <Metric label="apres tier" value={score.capped} delta={-score.capLoss} />
+        <Metric label={t("rawObjects")} value={score.raw} />
+        <Metric label={t("afterDuplicates")} value={score.afterDiminishing} delta={-score.duplicateLoss} />
+        <Metric label={t("afterSupportCaps")} value={score.afterSupportCaps} delta={-score.supportCapLoss} />
+        <Metric label={t("afterTier")} value={score.capped} delta={-score.capLoss} />
       </section>
 
       <section className="fit-grid">
-        <div><strong>{width}x{depth}x{height}</strong><span>taille piece</span></div>
-        <div className={objectFloor > width * depth ? "bad" : ""}><strong>{objectFloor}/{width * depth}</strong><span>sol objets</span></div>
-        <div className={requiredVolume > roomVolume ? "bad" : ""}><strong>{requiredVolume}/{roomVolume}</strong><span>m3 requis objets / m3 piece</span></div>
-        <div className={surface.used > surface.capacity ? "bad" : ""}><strong>{surface.used}/{surface.capacity}</strong><span>surface posee / disponible</span></div>
+        <div><strong>{width}x{depth}x{height}</strong><span>{t("roomSize")}</span></div>
+        <div className={objectFloor > width * depth ? "bad" : ""}><strong>{objectFloor}/{width * depth}</strong><span>{t("objectFloor")}</span></div>
+        <div className={requiredVolume > roomVolume ? "bad" : ""}><strong>{requiredVolume}/{roomVolume}</strong><span>{t("requiredVolumeVsRoom")}</span></div>
+        <div className={surface.used > surface.capacity ? "bad" : ""}><strong>{surface.used}/{surface.capacity}</strong><span>{t("placedSurfaceVsAvailable")}</span></div>
       </section>
 
       <section className="optimizer-grid">
         {optimization.groups.map((group) => (
           <article className="opt-group" key={group.category}>
             <div className="opt-title">
-              <div><CategoryBadge model={model} category={group.category} /><h3>{group.role}</h3>{group.supportCap != null && <small>plafond {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
+              <div><CategoryBadge t={t} model={model} category={group.category} /><h3>{group.role}</h3>{group.supportCap != null && <small>{t("cap")} {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
-              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} summary={summary} />) : <div className="empty">Aucun item avec ces filtres.</div>}
+              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} summary={summary} />) : <div className="empty">{t("noItemWithFilters")}</div>}
             </div>
           </article>
         ))}
@@ -443,15 +465,15 @@ function RoomOptimizationResults({ model, optimization, width, depth, height, ro
   );
 }
 
-function OptimizationSpinner() {
-  return <section className="optimization-state" aria-label="Calcul optimisation"><span className="spinner" /></section>;
+function OptimizationSpinner({ t }: { t: Translator }) {
+  return <section className="optimization-state" aria-label={t("calculationOptimization")}><span className="spinner" /></section>;
 }
 
-function OptimizationError({ message }: { message: string }) {
-  return <section className="optimization-state error"><strong>Erreur de calcul</strong><span>{message}</span></section>;
+function OptimizationError({ t, message }: { t: Translator; message: string }) {
+  return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
 }
 
-function RoomItem({ summary }: { summary: ReturnType<typeof summarizeEntries>[number] }) {
+function RoomItem({ t, summary }: { t: Translator; summary: ReturnType<typeof summarizeEntries>[number] }) {
   const item = summary.item;
   return (
     <div className="opt-item">
@@ -460,25 +482,25 @@ function RoomItem({ summary }: { summary: ReturnType<typeof summarizeEntries>[nu
         <b>x{summary.quantityPerRoom}</b>
       </div>
       <div className="pill-row">
-        <span className="pill">+{summary.score.toFixed(2)} XP total</span>
-        {summary.fromOwned > 0 && <span className="pill">acquis x{summary.fromOwned}</span>}
+        <span className="pill">+{summary.score.toFixed(2)} {t("xpTotal")}</span>
+        {summary.fromOwned > 0 && <span className="pill">{t("owned")} x{summary.fromOwned}</span>}
         {summary.rawScore - summary.score > 0.01 && <span className="pill warn">cap -{(summary.rawScore - summary.score).toFixed(2)}</span>}
-        {summary.lastMultiplier < 1 && <span className="pill">dernier: {Math.round(summary.lastMultiplier * 100)}%</span>}
-        <span className="pill">{item.typeForRoomLimit ?? "General"}</span>
+        {summary.lastMultiplier < 1 && <span className="pill">{t("last")}: {Math.round(summary.lastMultiplier * 100)}%</span>}
+        <span className="pill">{item.typeForRoomLimit ?? t("general")}</span>
         <span className="pill">{formatFootprint(item)}</span>
         {surfacePlacementKind(item) && <span className="pill">{surfacePlacementKind(item)}</span>}
-        {summary.placedOnFloor && <span className="pill warn">pose au sol</span>}
-        {surfaceUnitsProvided(item) > 0 && <span className="pill">surface +{surfaceUnitsProvided(item)}</span>}
-        {surfaceUnitsRequired(item) > 0 && <span className="pill">surface -{surfaceUnitsRequired(item)}</span>}
-        {itemFootprint(item).estimated && <span className="pill warn">empreinte estimee</span>}
-        {item.requirements?.requiredRoomVolume != null && <span className="pill">m3 requis {item.requirements.requiredRoomVolume}</span>}
+        {summary.placedOnFloor && <span className="pill warn">{t("floorPlacement")}</span>}
+        {surfaceUnitsProvided(item) > 0 && <span className="pill">{t("surfaceProvided")}{surfaceUnitsProvided(item)}</span>}
+        {surfaceUnitsRequired(item) > 0 && <span className="pill">{t("surfaceRequired")}{surfaceUnitsRequired(item)}</span>}
+        {itemFootprint(item).estimated && <span className="pill warn">{t("estimatedFootprint")}</span>}
+        {item.requirements?.requiredRoomVolume != null && <span className="pill">{t("requiredM3")} {item.requirements.requiredRoomVolume}</span>}
         {item.requirements?.requiredRoomMaterialTier != null && <span className="pill">T{item.requirements.requiredRoomMaterialTier}</span>}
       </div>
     </div>
   );
 }
 
-function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoModel; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
+function ObjectsPage({ model, t, config, update, selectedSkills }: { model: EcoModel; t: Translator; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
   const [openFilter, setOpenFilter] = useState<{ key: "category" | "craft"; left: number; top: number } | null>(null);
   const pageRef = useRef<HTMLElement | null>(null);
   const resolver = useMemo(() => createCraftResolver(model, selectedSkills), [model, selectedSkills]);
@@ -528,18 +550,19 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               <th>
                 <span className="object-name-header">
                   <SortableColumn
-                    label="Objet"
+                    label={t("object")}
                     active={config.objectSort === "name-asc" || config.objectSort === "name-desc"}
                     direction={config.objectSort === "name-desc" ? "desc" : "asc"}
                     onClick={() => update({ objectSort: config.objectSort === "name-asc" ? "name-desc" : "name-asc" })}
                   />
-                  <input value={config.objectSearch} onChange={(event) => update({ objectSearch: event.target.value })} placeholder="Rechercher..." />
+                  <input value={config.objectSearch} onChange={(event) => update({ objectSearch: event.target.value })} placeholder={t("search")} />
                 </span>
               </th>
               <th>
                 <FilterColumn
-                  label="Categorie"
-                  help="Categorie housing extraite du jeu. Elle sert a grouper les objets et a appliquer les caps de support dans le calcul de piece."
+                  t={t}
+                  label={t("category")}
+                  help={t("categoryHelp")}
                   activeCount={config.objectCategories.length}
                   open={openFilter?.key === "category"}
                   popoverStyle={openFilter?.key === "category" ? { left: openFilter.left, top: openFilter.top } : undefined}
@@ -553,7 +576,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
                         checked={config.objectCategories.includes(category)}
                         onChange={() => update({ objectCategories: toggleFilterValue(config.objectCategories, category) })}
                       />
-                      <CategoryBadge model={model} category={category} />
+                      <CategoryBadge t={t} model={model} category={category} />
                     </label>
                   ))}
                 </FilterColumn>
@@ -561,17 +584,17 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               <th>
                 <SortableColumn
                   label="XP"
-                  help="Valeur housing brute de l'objet avant les doublons, caps de support et cap du tier de materiaux."
+                  help={t("xpHelp")}
                   active={config.objectSort === "xp-desc" || config.objectSort === "xp-asc"}
                   direction={config.objectSort === "xp-asc" ? "asc" : "desc"}
                   onClick={() => update({ objectSort: config.objectSort === "xp-desc" ? "xp-asc" : "xp-desc" })}
                 />
               </th>
-              <th><ColumnHelp label="Doublons" help="Pourcentage conserve quand plusieurs objets du meme type sont places. 50% veut dire que le doublon vaut moitie moins." /></th>
+              <th><ColumnHelp label={t("duplicates")} help={t("duplicatesHelp")} /></th>
               <th>
                 <SortableColumn
-                  label="Empreinte au sol"
-                  help="Taille au sol extraite ou estimee. Le format largeur x profondeur = surface indique combien de blocs de sol l'objet occupe."
+                  label={t("floorFootprint")}
+                  help={t("floorFootprintHelp")}
                   active={config.objectSort === "floor-desc" || config.objectSort === "floor-asc"}
                   direction={config.objectSort === "floor-asc" ? "asc" : "desc"}
                   onClick={() => update({ objectSort: config.objectSort === "floor-desc" ? "floor-asc" : "floor-desc" })}
@@ -579,8 +602,8 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               </th>
               <th>
                 <SortableColumn
-                  label="Volume requis"
-                  help="Volume minimal demande par l'objet dans les donnees du jeu. Ce n'est pas le volume physique de l'objet."
+                  label={t("requiredVolume")}
+                  help={t("requiredVolumeHelp")}
                   active={config.objectSort === "volume-desc" || config.objectSort === "volume-asc"}
                   direction={config.objectSort === "volume-asc" ? "asc" : "desc"}
                   onClick={() => update({ objectSort: config.objectSort === "volume-desc" ? "volume-asc" : "volume-desc" })}
@@ -588,8 +611,9 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               </th>
               <th>
                 <FilterColumn
-                  label="Metier craft"
-                  help="Metier direct requis par la recette de cet objet. All signifie qu'aucun metier specifique n'est requis dans la recette directe."
+                  t={t}
+                  label={t("craftSkill")}
+                  help={t("craftSkillHelp")}
                   activeCount={config.objectCraftSkills.length}
                   open={openFilter?.key === "craft"}
                   popoverStyle={openFilter?.key === "craft" ? { left: openFilter.left, top: openFilter.top } : undefined}
@@ -602,7 +626,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
                       checked={config.objectCraftSkills.includes("none")}
                       onChange={() => update({ objectCraftSkills: toggleFilterValue(config.objectCraftSkills, "none") })}
                     />
-                    <span>All (sans metier)</span>
+                    <span>{t("noSpecificSkill")}</span>
                   </label>
                   {craftSkills.map((skill) => (
                     <label className="filter-option" key={skill.className}>
@@ -623,12 +647,12 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
               return (
                 <tr key={item.itemClass}>
                   <td><ItemName item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
-                  <td><CategoryBadge model={model} category={item.category} /></td>
+                  <td><CategoryBadge t={t} model={model} category={item.category} /></td>
                   <td>{item.value}</td>
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
                   <td>{formatFootprint(item)}</td>
                   <td>{item.requirements?.requiredRoomVolume ?? "-"}</td>
-                  <td><CraftSkillNames model={model} item={item} /></td>
+                  <td><CraftSkillNames t={t} model={model} item={item} /></td>
                 </tr>
               );
             })}
@@ -662,10 +686,10 @@ function floorAreaForSort(item: HousingItem) {
   return itemFootprint(item).floorArea;
 }
 
-function CategoryBadge({ model, category }: { model: EcoModel; category: string }) {
+function CategoryBadge({ t, model, category }: { t: Translator; model: EcoModel; category: string }) {
   const roomCategory = model.roomCategoryByName.get(category);
   const color = roomCategory?.colorHex ?? fallbackCategoryColor(category);
-  const source = roomCategory?.colorHex ? "couleur Eco" : roomCategory?.colorSource ? `${roomCategory.colorSource}, couleur approx` : "couleur app";
+  const source = roomCategory?.colorHex ? t("ecoColor") : roomCategory?.colorSource ? `${roomCategory.colorSource}, ${t("approximateColor")}` : t("appColor");
   return (
     <span className="category-badge" style={{ "--category-color": color } as CSSProperties} title={`${category} - ${source}`}>
       <span aria-hidden="true" />
@@ -700,9 +724,9 @@ function isCraftSkill(model: EcoModel, skillClass: SkillClass | null | undefined
   return !skill?.isProfession;
 }
 
-function CraftSkillNames({ model, item }: { model: EcoModel; item: HousingItem }) {
+function CraftSkillNames({ t, model, item }: { t: Translator; model: EcoModel; item: HousingItem }) {
   const requirements = craftSkillRequirements(model, item);
-  if (!requirements.length) return <span>All</span>;
+  if (!requirements.length) return <span>{t("all")}</span>;
   return (
     <span className="skill-list-inline">
       {requirements.map(({ skill, level }) => (
@@ -766,6 +790,7 @@ function SortableColumn({
 }
 
 function FilterColumn({
+  t,
   label,
   help,
   activeCount,
@@ -775,6 +800,7 @@ function FilterColumn({
   onClear,
   children,
 }: {
+  t: Translator;
   label: string;
   help: string;
   activeCount: number;
@@ -789,7 +815,7 @@ function FilterColumn({
       <span className="column-control">
         <span>{label}</span>
         <HelpButton help={help} />
-        <button type="button" className={activeCount ? "filter-button active" : "filter-button"} onClick={onToggle} aria-label={`Filtrer ${label}`}>
+        <button type="button" className={activeCount ? "filter-button active" : "filter-button"} onClick={onToggle} aria-label={`${t("filterLabel")} ${label}`}>
           <FilterIcon />
           {activeCount > 0 && <span>{activeCount}</span>}
         </button>
@@ -798,7 +824,7 @@ function FilterColumn({
         <span className="filter-popover" style={popoverStyle}>
           <span className="filter-popover-head">
             <strong>{label}</strong>
-            <button type="button" onClick={onClear}>Reset</button>
+            <button type="button" onClick={onClear}>{t("reset")}</button>
           </span>
           <span className="filter-options">{children}</span>
         </span>
@@ -824,19 +850,19 @@ function HelpButton({ help }: { help: string }) {
   );
 }
 
-function OwnedItemsModal({ model, ownedItems, selectedSkills, onChange, onClose }: { model: EcoModel; ownedItems: Map<ItemClass, number>; selectedSkills: Set<SkillClass>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
+function OwnedItemsModal({ t, model, ownedItems, selectedSkills, onChange, onClose }: { t: Translator; model: EcoModel; ownedItems: Map<ItemClass, number>; selectedSkills: Set<SkillClass>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
   const resolver = useMemo(() => createCraftResolver(model, selectedSkills), [model, selectedSkills]);
   const items = model.housingItems.filter((item) => resolver.resolve(item.itemClass).craftable).sort((a, b) => byName(a, b));
-  return <ItemQuantityModal title="Objets deja acquis" items={items} ownedItems={ownedItems} onChange={onChange} onClose={onClose} />;
+  return <ItemQuantityModal t={t} title={t("ownedItemsTitle")} items={items} ownedItems={ownedItems} onChange={onChange} onClose={onClose} />;
 }
 
-function ItemQuantityModal({ title, items, ownedItems, onChange, onClose }: { title: string; items: HousingItem[]; ownedItems: Map<ItemClass, number>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
+function ItemQuantityModal({ t, title, items, ownedItems, onChange, onClose }: { t: Translator; title: string; items: HousingItem[]; ownedItems: Map<ItemClass, number>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
   const filtered = items.filter((item) => !query || item.friendlyName.toLowerCase().includes(query)).slice(0, 220);
   return (
     <Modal title={title} onClose={onClose}>
-      <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrer les objets..." /><button onClick={() => onChange(new Map())}>Vider</button></div>
+      <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("filterObjects")} /><button onClick={() => onChange(new Map())}>{t("clear")}</button></div>
       <div className="modal-list">
         {filtered.map((item) => <label className="quantity-row" key={item.itemClass}><ItemName item={item} subtitle={item.category} /><input type="number" min={0} max={999} value={ownedItems.get(item.itemClass) ?? 0} onChange={(event) => {
           const next = new Map(ownedItems);
@@ -850,7 +876,7 @@ function ItemQuantityModal({ title, items, ownedItems, onChange, onClose }: { ti
   );
 }
 
-function AllowedItemsModal({ model, disabledItems, onChange, onClose }: { model: EcoModel; disabledItems: Set<ItemClass>; onChange: (next: Set<ItemClass>) => void; onClose: () => void }) {
+function AllowedItemsModal({ t, model, disabledItems, onChange, onClose }: { t: Translator; model: EcoModel; disabledItems: Set<ItemClass>; onChange: (next: Set<ItemClass>) => void; onClose: () => void }) {
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
   const items = model.housingItems.filter((item) => !query || item.friendlyName.toLowerCase().includes(query)).sort((a, b) => byName(a, b)).slice(0, 260);
@@ -861,8 +887,8 @@ function AllowedItemsModal({ model, disabledItems, onChange, onClose }: { model:
     onChange(next);
   }
   return (
-    <Modal title="Autorisations d'optimisation" onClose={onClose}>
-      <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrer les objets..." /><button onClick={() => onChange(new Set())}>Tout autoriser</button></div>
+    <Modal title={t("optimizationPermissionsTitle")} onClose={onClose}>
+      <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("filterObjects")} /><button onClick={() => onChange(new Set())}>{t("allowAll")}</button></div>
       <div className="modal-list">
         {items.map((item) => <label className="check-row modal-check" key={item.itemClass}><input type="checkbox" checked={!disabledItems.has(item.itemClass)} onChange={(event) => setAllowed(item, event.target.checked)} /><ItemName item={item} subtitle={item.category} /></label>)}
       </div>

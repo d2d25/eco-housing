@@ -65,8 +65,32 @@ summary { display: flex; justify-content: space-between; font-weight: 800; curso
 .toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 18px; }
 .toolbar h2 { font-size: 28px; }
 .stats { display: flex; gap: 10px; }
-.stats div { min-width: 90px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: white; box-shadow: var(--shadow); }
+.stats > div:not(.language-switcher) { min-width: 90px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: white; box-shadow: var(--shadow); }
 .stats strong { display: block; font-size: 24px; }
+.language-switcher {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+.language-switcher button {
+  min-width: 36px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+.language-switcher button.active {
+  background: var(--accent-soft);
+  color: #214b36;
+}
 
 .page-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-bottom: 10px; }
 .page-actions > span { margin-right: auto; }

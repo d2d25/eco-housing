@@ -1,8 +1,10 @@
 import type { ItemClass, SkillClass } from "../domain/types";
+import { isLanguage, type Language } from "./i18n";
 
 export type ActiveView = "room" | "objects";
 
 export interface AppConfig {
+  language: Language;
   activeView: ActiveView;
   roomType: string;
   roomTier: number;
@@ -18,6 +20,7 @@ export interface AppConfig {
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
+  language: "fr",
   activeView: "room",
   roomType: "Bedroom",
   roomTier: 2,
@@ -53,6 +56,7 @@ export function loadConfig(): AppConfig {
         : parsed.objectCraftSkill && parsed.objectCraftSkill !== "all"
           ? [parsed.objectCraftSkill]
           : DEFAULT_CONFIG.objectCraftSkills,
+      language: isLanguage(parsed.language) ? parsed.language : DEFAULT_CONFIG.language,
       objectSort: parsed.objectSort === "name" ? DEFAULT_CONFIG.objectSort : parsed.objectSort ?? DEFAULT_CONFIG.objectSort,
     };
   } catch {
