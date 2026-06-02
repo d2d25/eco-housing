@@ -12,8 +12,9 @@ export interface AppConfig {
   selectedSkills: SkillClass[];
   disabledItems: ItemClass[];
   objectSearch: string;
-  objectCategory: string;
-  objectAvailability: "available" | "all" | "locked";
+  objectCategories: string[];
+  objectCraftSkills: string[];
+  objectSort: "name-asc" | "name-desc" | "xp-desc" | "xp-asc" | "floor-desc" | "floor-asc" | "volume-desc" | "volume-asc";
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -26,8 +27,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   selectedSkills: [],
   disabledItems: [],
   objectSearch: "",
-  objectCategory: "all",
-  objectAvailability: "available",
+  objectCategories: [],
+  objectCraftSkills: [],
+  objectSort: "name-asc",
 };
 
 const CONFIG_KEY = "ecoHousingReactConfig";
@@ -38,7 +40,21 @@ export function loadConfig(): AppConfig {
     const raw = localStorage.getItem(CONFIG_KEY);
     if (!raw) return DEFAULT_CONFIG;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_CONFIG, ...parsed, objectAvailability: parsed.objectAvailability ?? parsed.availability ?? DEFAULT_CONFIG.objectAvailability };
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      objectCategories: Array.isArray(parsed.objectCategories)
+        ? parsed.objectCategories
+        : parsed.objectCategory && parsed.objectCategory !== "all"
+          ? [parsed.objectCategory]
+          : DEFAULT_CONFIG.objectCategories,
+      objectCraftSkills: Array.isArray(parsed.objectCraftSkills)
+        ? parsed.objectCraftSkills
+        : parsed.objectCraftSkill && parsed.objectCraftSkill !== "all"
+          ? [parsed.objectCraftSkill]
+          : DEFAULT_CONFIG.objectCraftSkills,
+      objectSort: parsed.objectSort === "name" ? DEFAULT_CONFIG.objectSort : parsed.objectSort ?? DEFAULT_CONFIG.objectSort,
+    };
   } catch {
     return DEFAULT_CONFIG;
   }

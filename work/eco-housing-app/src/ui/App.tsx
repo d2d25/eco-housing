@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
 import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKind, surfaceSummary, surfaceUnitsProvided, surfaceUnitsRequired } from "../domain/placementRules";
 import { summarizeEntries } from "../domain/roomScoring";
 import type { EcoModel, HousingItem, ItemClass, RoomOptimization, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
-import { formatAvailability } from "./format";
 import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems, type ActiveView, type AppConfig } from "./storage";
 import { useRoomOptimizationWorker } from "./useRoomOptimizationWorker";
 
@@ -473,33 +472,135 @@ function RoomItem({ summary }: { summary: ReturnType<typeof summarizeEntries>[nu
 }
 
 function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoModel; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
+  const [openFilter, setOpenFilter] = useState<{ key: "category" | "craft"; left: number; top: number } | null>(null);
   const resolver = useMemo(() => createCraftResolver(model, selectedSkills), [model, selectedSkills]);
   const categories = [...new Set(model.housingItems.map((item) => item.category))].sort();
+  const craftSkills = craftSkillOptions(model);
   const query = config.objectSearch.trim().toLowerCase();
   const items = model.housingItems
-    .filter((item) => config.objectCategory === "all" || item.category === config.objectCategory)
+    .filter((item) => !config.objectCategories.length || config.objectCategories.includes(item.category))
+    .filter((item) => {
+      if (!config.objectCraftSkills.length) return true;
+      const skillClasses = craftSkillClassesForItem(model, item);
+      return config.objectCraftSkills.some((skillClass) => skillClass === "none" ? skillClasses.length === 0 : skillClasses.includes(skillClass));
+    })
     .filter((item) => {
       const resolution = resolver.resolve(item.itemClass);
-      if (config.objectAvailability === "available" && !resolution.craftable) return false;
-      if (config.objectAvailability === "locked" && resolution.craftable) return false;
-      return true;
+      return resolution.craftable;
     })
     .filter((item) => !query || [item.friendlyName, item.category, item.typeForRoomLimit, item.source].join(" ").toLowerCase().includes(query))
-    .sort((a, b) => b.value - a.value || byName(a, b));
+    .sort((a, b) => sortObjects(a, b, config.objectSort));
+
+  function toggleColumnFilter(key: "category" | "craft", event: MouseEvent<HTMLButtonElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 280;
+    const margin = 12;
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    const top = Math.min(rect.bottom + 8, window.innerHeight - 120);
+    setOpenFilter((current) => current?.key === key ? null : { key, left, top });
+  }
 
   return (
     <section className="objects-page">
-      <div className="object-tools">
-        <label>Recherche<input value={config.objectSearch} onChange={(event) => update({ objectSearch: event.target.value })} placeholder="Lit, table, lamp..." /></label>
-        <label>Categorie<select value={config.objectCategory} onChange={(event) => update({ objectCategory: event.target.value })}><option value="all">Toutes</option>{categories.map((cat) => <option key={cat}>{cat}</option>)}</select></label>
-        <label>Affichage<select value={config.objectAvailability} onChange={(event) => update({ objectAvailability: event.target.value as AppConfig["objectAvailability"] })}><option value="available">Craftable avec metiers</option><option value="all">Tous</option><option value="locked">Verrouilles</option></select></label>
-      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Item</th><th>Categorie</th><th>Valeur</th><th>Retour</th><th>Sol</th><th>m3</th><th>Surface</th><th>Metier</th></tr></thead>
+          <thead>
+            <tr>
+              <th>
+                <span className="object-name-header">
+                  <SortableColumn
+                    label="Objet"
+                    active={config.objectSort === "name-asc" || config.objectSort === "name-desc"}
+                    direction={config.objectSort === "name-desc" ? "desc" : "asc"}
+                    onClick={() => update({ objectSort: config.objectSort === "name-asc" ? "name-desc" : "name-asc" })}
+                  />
+                  <input value={config.objectSearch} onChange={(event) => update({ objectSearch: event.target.value })} placeholder="Rechercher..." />
+                </span>
+              </th>
+              <th>
+                <FilterColumn
+                  label="Categorie"
+                  help="Categorie housing extraite du jeu. Elle sert a grouper les objets et a appliquer les caps de support dans le calcul de piece."
+                  activeCount={config.objectCategories.length}
+                  open={openFilter?.key === "category"}
+                  popoverStyle={openFilter?.key === "category" ? { left: openFilter.left, top: openFilter.top } : undefined}
+                  onToggle={(event) => toggleColumnFilter("category", event)}
+                  onClear={() => update({ objectCategories: [] })}
+                >
+                  {categories.map((category) => (
+                    <label className="filter-option" key={category}>
+                      <input
+                        type="checkbox"
+                        checked={config.objectCategories.includes(category)}
+                        onChange={() => update({ objectCategories: toggleFilterValue(config.objectCategories, category) })}
+                      />
+                      <span>{category}</span>
+                    </label>
+                  ))}
+                </FilterColumn>
+              </th>
+              <th>
+                <SortableColumn
+                  label="XP"
+                  help="Valeur housing brute de l'objet avant les doublons, caps de support et cap du tier de materiaux."
+                  active={config.objectSort === "xp-desc" || config.objectSort === "xp-asc"}
+                  direction={config.objectSort === "xp-asc" ? "asc" : "desc"}
+                  onClick={() => update({ objectSort: config.objectSort === "xp-desc" ? "xp-asc" : "xp-desc" })}
+                />
+              </th>
+              <th><ColumnHelp label="Doublons" help="Pourcentage conserve quand plusieurs objets du meme type sont places. 50% veut dire que le doublon vaut moitie moins." /></th>
+              <th>
+                <SortableColumn
+                  label="Empreinte au sol"
+                  help="Taille au sol extraite ou estimee. Le format largeur x profondeur = surface indique combien de blocs de sol l'objet occupe."
+                  active={config.objectSort === "floor-desc" || config.objectSort === "floor-asc"}
+                  direction={config.objectSort === "floor-asc" ? "asc" : "desc"}
+                  onClick={() => update({ objectSort: config.objectSort === "floor-desc" ? "floor-asc" : "floor-desc" })}
+                />
+              </th>
+              <th>
+                <SortableColumn
+                  label="Volume requis"
+                  help="Volume minimal demande par l'objet dans les donnees du jeu. Ce n'est pas le volume physique de l'objet."
+                  active={config.objectSort === "volume-desc" || config.objectSort === "volume-asc"}
+                  direction={config.objectSort === "volume-asc" ? "asc" : "desc"}
+                  onClick={() => update({ objectSort: config.objectSort === "volume-desc" ? "volume-asc" : "volume-desc" })}
+                />
+              </th>
+              <th>
+                <FilterColumn
+                  label="Metier craft"
+                  help="Metier direct requis par la recette de cet objet. All signifie qu'aucun metier specifique n'est requis dans la recette directe."
+                  activeCount={config.objectCraftSkills.length}
+                  open={openFilter?.key === "craft"}
+                  popoverStyle={openFilter?.key === "craft" ? { left: openFilter.left, top: openFilter.top } : undefined}
+                  onToggle={(event) => toggleColumnFilter("craft", event)}
+                  onClear={() => update({ objectCraftSkills: [] })}
+                >
+                  <label className="filter-option">
+                    <input
+                      type="checkbox"
+                      checked={config.objectCraftSkills.includes("none")}
+                      onChange={() => update({ objectCraftSkills: toggleFilterValue(config.objectCraftSkills, "none") })}
+                    />
+                    <span>All (sans metier)</span>
+                  </label>
+                  {craftSkills.map((skill) => (
+                    <label className="filter-option" key={skill.className}>
+                      <input
+                        type="checkbox"
+                        checked={config.objectCraftSkills.includes(skill.className)}
+                        onChange={() => update({ objectCraftSkills: toggleFilterValue(config.objectCraftSkills, skill.className) })}
+                      />
+                      <span>{skill.friendlyName}</span>
+                    </label>
+                  ))}
+                </FilterColumn>
+              </th>
+            </tr>
+          </thead>
           <tbody>
             {items.map((item) => {
-              const resolution = resolver.resolve(item.itemClass);
               return (
                 <tr key={item.itemClass}>
                   <td><ItemName item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
@@ -508,8 +609,7 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
                   <td>{formatFootprint(item)}</td>
                   <td>{item.requirements?.requiredRoomVolume ?? "-"}</td>
-                  <td>{surfacePlacementKind(item) || "-"}</td>
-                  <td className={resolution.craftable ? "" : "locked"}>{formatAvailability(model, item, resolution)}</td>
+                  <td>{formatCraftSkills(model, item)}</td>
                 </tr>
               );
             })}
@@ -517,6 +617,164 @@ function ObjectsPage({ model, config, update, selectedSkills }: { model: EcoMode
         </table>
       </div>
     </section>
+  );
+}
+
+function sortObjects(a: HousingItem, b: HousingItem, sort: AppConfig["objectSort"]) {
+  if (sort === "name-desc") return byName(b, a);
+  if (sort === "xp-desc") return b.value - a.value || byName(a, b);
+  if (sort === "xp-asc") return a.value - b.value || byName(a, b);
+  if (sort === "floor-desc") return floorAreaForSort(b) - floorAreaForSort(a) || byName(a, b);
+  if (sort === "floor-asc") return floorAreaForSort(a) - floorAreaForSort(b) || byName(a, b);
+  if (sort === "volume-desc") return requiredVolumeForSort(b) - requiredVolumeForSort(a) || byName(a, b);
+  if (sort === "volume-asc") return requiredVolumeForSort(a) - requiredVolumeForSort(b) || byName(a, b);
+  return byName(a, b);
+}
+
+function toggleFilterValue(values: string[], value: string) {
+  return values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
+}
+
+function requiredVolumeForSort(item: HousingItem) {
+  return item.requirements?.requiredRoomVolume ?? -1;
+}
+
+function floorAreaForSort(item: HousingItem) {
+  return itemFootprint(item).floorArea;
+}
+
+function craftSkillOptions(model: EcoModel) {
+  const used = new Set<SkillClass>();
+  for (const item of model.housingItems) {
+    for (const skillClass of craftSkillClassesForItem(model, item)) used.add(skillClass);
+  }
+  return [...used]
+    .map((skillClass) => model.skillsByClass.get(skillClass) ?? { className: skillClass, friendlyName: skillClass })
+    .sort((a, b) => byName(a, b));
+}
+
+function craftSkillClassesForItem(model: EcoModel, item: HousingItem) {
+  return [...new Set(item.recipes.map((recipe) => recipe.requiredSkillClass).filter((skillClass): skillClass is SkillClass => isCraftSkill(model, skillClass)))];
+}
+
+function isCraftSkill(model: EcoModel, skillClass: SkillClass | null | undefined): skillClass is SkillClass {
+  if (!skillClass || skillClass === "Skill") return false;
+  const skill = model.skillsByClass.get(skillClass);
+  return !skill?.isProfession;
+}
+
+function formatCraftSkills(model: EcoModel, item: HousingItem) {
+  const requirements = new Map<SkillClass, number | null>();
+  for (const recipe of item.recipes) {
+    const skillClass = recipe.requiredSkillClass;
+    if (!isCraftSkill(model, skillClass)) continue;
+    const level = recipe.requiredSkillLevel ?? null;
+    const current = requirements.get(skillClass);
+    if (current == null || (level ?? 0) < current) requirements.set(skillClass, level);
+  }
+
+  if (!requirements.size) return "All";
+
+  return [...requirements.entries()]
+    .map(([skillClass, level]) => {
+      const name = model.skillsByClass.get(skillClass)?.friendlyName ?? skillClass;
+      return level ? `${name} ${level}` : name;
+    })
+    .sort((a, b) => a.localeCompare(b))
+    .join(", ");
+}
+
+function ColumnHelp({ label, help }: { label: string; help: string }) {
+  return (
+    <span className="column-help">
+      <span>{label}</span>
+      <span className="help-wrap">
+        <button type="button" className="help-button" aria-label={help}>?</button>
+        <span className="help-popover" role="tooltip">{help}</span>
+      </span>
+    </span>
+  );
+}
+
+function SortableColumn({
+  label,
+  help,
+  active,
+  direction = "asc",
+  onClick,
+}: {
+  label: string;
+  help?: string;
+  active: boolean;
+  direction?: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <span className="column-control">
+      <button type="button" className={active ? "sort-button active" : "sort-button"} onClick={onClick}>
+        {label}<span aria-hidden="true">{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span>
+      </button>
+      {help && <HelpButton help={help} />}
+    </span>
+  );
+}
+
+function FilterColumn({
+  label,
+  help,
+  activeCount,
+  open,
+  popoverStyle,
+  onToggle,
+  onClear,
+  children,
+}: {
+  label: string;
+  help: string;
+  activeCount: number;
+  open: boolean;
+  popoverStyle?: CSSProperties;
+  onToggle: (event: MouseEvent<HTMLButtonElement>) => void;
+  onClear: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <span className="column-filter">
+      <span className="column-control">
+        <span>{label}</span>
+        <HelpButton help={help} />
+        <button type="button" className={activeCount ? "filter-button active" : "filter-button"} onClick={onToggle} aria-label={`Filtrer ${label}`}>
+          <FilterIcon />
+          {activeCount > 0 && <span>{activeCount}</span>}
+        </button>
+      </span>
+      {open && (
+        <span className="filter-popover" style={popoverStyle}>
+          <span className="filter-popover-head">
+            <strong>{label}</strong>
+            <button type="button" onClick={onClear}>Reset</button>
+          </span>
+          <span className="filter-options">{children}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 6H20L14 13V19L10 21V13L4 6Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function HelpButton({ help }: { help: string }) {
+  return (
+    <span className="help-wrap">
+      <button type="button" className="help-button" aria-label={help}>?</button>
+      <span className="help-popover" role="tooltip">{help}</span>
+    </span>
   );
 }
 

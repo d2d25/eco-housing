@@ -73,8 +73,7 @@ export function itemFitsRoomDimensions(item: HousingItem, constraints: Pick<Room
 export function formatFootprint(item: HousingItem) {
   const footprint = itemFootprint(item);
   if (!footprint.floorArea) return "-";
-  const suffix = footprint.estimated ? " estime" : "";
-  return `${footprint.width}x${footprint.depth} (${footprint.floorArea})${footprint.height ? ` h${footprint.height}` : ""}${suffix}`;
+  return `${footprint.width}x${footprint.depth}=${footprint.floorArea}`;
 }
 
 export function surfaceSummary(entries: OptimizationEntry[]) {
