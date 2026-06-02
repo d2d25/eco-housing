@@ -109,6 +109,82 @@ async function readMarketplaceBlueprintWorldObjects(ecoPath) {
   return worldObjects;
 }
 
+function decodeXmlEntities(value) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function normalizeTranslationText(value) {
+  return decodeXmlEntities(value).replace(/\r\n/g, "\n").trim();
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mergeTranslationMaps(...maps) {
+  const merged = new Map();
+  for (const map of maps) {
+    for (const [key, value] of map.entries()) {
+      if (!key || !value) continue;
+      merged.set(key, value);
+    }
+  }
+  return merged;
+}
+
+function parseXlfTranslations(source) {
+  const translations = new Map();
+  const regex = /<trans-unit\b[\s\S]*?<source[^>]*>([\s\S]*?)<\/source>\s*<target[^>]*>([\s\S]*?)<\/target>[\s\S]*?<\/trans-unit>/g;
+  for (const match of source.matchAll(regex)) {
+    const key = normalizeTranslationText(match[1]);
+    const value = normalizeTranslationText(match[2]);
+    if (!key || !value) continue;
+    translations.set(key, value);
+  }
+  return translations;
+}
+
+async function readGameTranslationMap(ecoPath, language) {
+  if (!ecoPath) return new Map();
+  const xlfPath = path.join(ecoPath, "Eco_Data", "Server", "Mods", "__core__", "Ecopedia", "LocalizedStrings", `${language}.xlf`);
+  if (!(await exists(xlfPath))) return new Map();
+
+  const source = await fs.readFile(xlfPath, "utf8");
+  return parseXlfTranslations(source);
+}
+
+async function readSharedResourceTranslationMap(ecoPath, language) {
+  if (!ecoPath) return new Map();
+  const resourcePath = path.join(ecoPath, "Eco_Data", "il2cpp_data", "Resources", "Eco.Shared.dll-resources.dat");
+  if (!(await exists(resourcePath))) return new Map();
+
+  const source = await fs.readFile(resourcePath, "utf8");
+  const translations = new Map();
+  const fileRegex = new RegExp(`<file\\b[^>]*target-language="${escapeRegExp(language)}"[^>]*>[\\s\\S]*?<\\/file>`, "g");
+  for (const fileMatch of source.matchAll(fileRegex)) {
+    const fileTranslations = parseXlfTranslations(fileMatch[0]);
+    for (const [key, value] of fileTranslations.entries()) translations.set(key, value);
+  }
+  return translations;
+}
+
+async function readGameTranslations(ecoPath, languages = ["en", "fr"]) {
+  const translations = {};
+  for (const language of languages) {
+    const map = mergeTranslationMaps(
+      await readGameTranslationMap(ecoPath, language),
+      await readSharedResourceTranslationMap(ecoPath, language)
+    );
+    if (map.size > 0) translations[language] = map;
+  }
+  return translations;
+}
+
 async function listCsFiles(root) {
   const files = [];
 
@@ -669,6 +745,51 @@ async function addIconUrls(result, iconsDir) {
   };
 }
 
+function addLocalizedName(entry, englishName, translationMaps) {
+  if (!englishName) return false;
+  const localizedName = {};
+  for (const [language, translations] of Object.entries(translationMaps)) {
+    const translated = translations.get(englishName);
+    if (translated) localizedName[language] = translated;
+  }
+  if (Object.keys(localizedName).length === 0) return false;
+  entry.localizedName = localizedName;
+  return true;
+}
+
+function addLocalizedNames(result, translationMaps) {
+  const counts = {
+    languages: Object.fromEntries(Object.entries(translationMaps).map(([language, translations]) => [language, translations.size])),
+    items: 0,
+    housing: 0,
+    skills: 0,
+    recipes: 0,
+    roomCategories: 0,
+  };
+
+  for (const item of result.items) {
+    if (addLocalizedName(item, item.friendlyName, translationMaps)) counts.items += 1;
+  }
+
+  for (const housing of result.housing) {
+    if (addLocalizedName(housing, housing.friendlyName, translationMaps)) counts.housing += 1;
+  }
+
+  for (const skill of result.skills) {
+    if (addLocalizedName(skill, skill.friendlyName, translationMaps)) counts.skills += 1;
+  }
+
+  for (const recipe of result.recipes) {
+    if (addLocalizedName(recipe, recipe.name, translationMaps)) counts.recipes += 1;
+  }
+
+  for (const roomCategory of result.roomCategories) {
+    if (addLocalizedName(roomCategory, roomCategory.name, translationMaps)) counts.roomCategories += 1;
+  }
+
+  result.meta.localization = counts;
+}
+
 function runProcess(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "inherit" });
@@ -697,6 +818,7 @@ async function extract(modsPath, options = {}) {
 
   const files = await listCsFiles(resolvedModsPath);
   const marketplaceBlueprintWorldObjects = await readMarketplaceBlueprintWorldObjects(options.ecoPath);
+  const gameTranslations = await readGameTranslations(options.ecoPath);
   const result = {
     meta: {
       extractorVersion: VERSION,
@@ -753,6 +875,7 @@ async function extract(modsPath, options = {}) {
   result.occupancy = result.occupancy.sort((a, b) => a.worldObjectClass.localeCompare(b.worldObjectClass));
   result.roomCategories = result.roomCategories.sort((a, b) => a.name.localeCompare(b.name));
   result.roomTiers = result.roomTiers.sort((a, b) => a.tier - b.tier);
+  addLocalizedNames(result, gameTranslations);
   await addIconUrls(result, options.iconsDir);
   result.meta.counts = {
     items: result.items.length,

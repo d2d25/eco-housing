@@ -5,6 +5,7 @@ export type WorldObjectClass = string;
 export interface EcoItem {
   className: ItemClass;
   friendlyName: string;
+  localizedName?: Record<string, string>;
   description?: string | null;
   worldObjectClass?: WorldObjectClass | null;
   categories?: string[];
@@ -19,6 +20,7 @@ export interface EcoItem {
 export interface HousingValue {
   itemClass: ItemClass;
   friendlyName: string;
+  localizedName?: Record<string, string>;
   description?: string | null;
   worldObjectClass?: WorldObjectClass | null;
   category: string;
@@ -46,6 +48,7 @@ export interface RecipeElement {
 export interface Recipe {
   className: string;
   name: string;
+  localizedName?: Record<string, string>;
   requiredSkillClass?: SkillClass | null;
   requiredSkillLevel?: number | null;
   craftingTableClass?: WorldObjectClass | null;
@@ -57,6 +60,7 @@ export interface Recipe {
 export interface Skill {
   className: SkillClass;
   friendlyName: string;
+  localizedName?: Record<string, string>;
   tier?: number | null;
   isSpecialty?: boolean;
   isProfession?: boolean;
@@ -68,6 +72,7 @@ export interface Skill {
 
 export interface RoomCategory {
   name: string;
+  localizedName?: Record<string, string>;
   colorHex?: string | null;
   colorSource?: string | null;
   canBeRoomCategory: boolean;

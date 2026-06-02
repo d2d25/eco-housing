@@ -5,7 +5,7 @@ import { estimateObjectFloor, formatFootprint, itemFootprint, surfacePlacementKi
 import { summarizeEntries } from "../domain/roomScoring";
 import type { EcoModel, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
-import { createTranslator, LANGUAGES, type Translator } from "./i18n";
+import { createTranslator, LANGUAGES, type Language, type Translator } from "./i18n";
 import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems, type ActiveView, type AppConfig } from "./storage";
 import { useRoomOptimizationWorker } from "./useRoomOptimizationWorker";
 
@@ -75,7 +75,7 @@ export function App() {
           <button className={config.activeView === "room" ? "active" : ""} onClick={() => update({ activeView: "room" })}>{t("viewRoom")}</button>
           <button className={config.activeView === "objects" ? "active" : ""} onClick={() => update({ activeView: "objects" })}>{t("viewObjects")}</button>
         </nav>
-        <SkillPanel t={t} model={model} availableSkills={availableSkills} selectedSkills={selectedSkills} onChange={(next) => update({ selectedSkills: [...next] })} />
+        <SkillPanel t={t} language={config.language} model={model} availableSkills={availableSkills} selectedSkills={selectedSkills} onChange={(next) => update({ selectedSkills: [...next] })} />
       </aside>
 
       <main className="app">
@@ -95,6 +95,7 @@ export function App() {
           <RoomPage
             model={model}
             t={t}
+            language={config.language}
             config={config}
             update={update}
             selectedSkills={selectedSkills}
@@ -105,12 +106,12 @@ export function App() {
             onImportJson={importExportJson}
           />
         ) : (
-          <ObjectsPage model={model} t={t} config={config} update={update} selectedSkills={selectedSkills} />
+          <ObjectsPage model={model} t={t} language={config.language} config={config} update={update} selectedSkills={selectedSkills} />
         )}
       </main>
 
-      {ownedOpen && <OwnedItemsModal t={t} model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
-      {allowedOpen && <AllowedItemsModal t={t} model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
+      {ownedOpen && <OwnedItemsModal t={t} language={config.language} model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
+      {allowedOpen && <AllowedItemsModal t={t} language={config.language} model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
     </div>
   );
 }
@@ -144,12 +145,14 @@ function LanguageSwitcher({ language, onChange }: { language: AppConfig["languag
 
 function SkillPanel({
   t,
+  language,
   model,
   availableSkills,
   selectedSkills,
   onChange,
 }: {
   t: Translator;
+  language: Language;
   model: EcoModel;
   availableSkills: typeof model.skills;
   selectedSkills: Set<SkillClass>;
@@ -188,7 +191,7 @@ function SkillPanel({
             {skills.map((skill) => (
               <label className="check-row" key={skill.className}>
                 <input type="checkbox" checked={selectedSkills.has(skill.className)} onChange={() => toggle(skill.className)} />
-                <SkillName skill={skill} />
+                <SkillName language={language} skill={skill} />
               </label>
             ))}
           </details>
@@ -201,6 +204,7 @@ function SkillPanel({
 function RoomPage(props: {
   model: EcoModel;
   t: Translator;
+  language: Language;
   config: AppConfig;
   update: (partial: Partial<AppConfig>) => void;
   selectedSkills: Set<SkillClass>;
@@ -210,7 +214,7 @@ function RoomPage(props: {
   onOpenAllowed: () => void;
   onImportJson: (file: File) => void;
 }) {
-  const { model, t, config, update, selectedSkills, disabledItems, ownedItems } = props;
+  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Outdoor" && room.name !== "Cultural");
   const tiers = model.roomTiers;
@@ -225,7 +229,7 @@ function RoomPage(props: {
           {optimization ? (
             <>
               <span>{t("compatibleCategories")}</span>
-              {optimization.groups.map((group) => <CategoryBadge key={group.category} t={t} model={model} category={group.category} />)}
+              {optimization.groups.map((group) => <CategoryBadge key={group.category} t={t} language={language} model={model} category={group.category} />)}
             </>
           ) : t("calculating")}
         </span>
@@ -258,14 +262,14 @@ function RoomPage(props: {
         </div>
         <div className="segmented">
           <span>{t("roomType")}</span>
-          <div>{playableRooms.map((room) => <button key={room.name} className={config.roomType === room.name ? "active" : ""} onClick={() => update({ roomType: room.name })}>{room.name}</button>)}</div>
+          <div>{playableRooms.map((room) => <button key={room.name} className={config.roomType === room.name ? "active" : ""} onClick={() => update({ roomType: room.name })}>{displayCategoryName(model, room.name, language)}</button>)}</div>
         </div>
       </section>
 
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
       {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults t={t} model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
+        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={config.width} depth={config.depth} height={config.height} roomVolume={roomVolume} />
       )}
     </section>
   );
@@ -421,7 +425,7 @@ function readClassArray(value: unknown, field: string, t: Translator) {
   return readObjectArray(value, field, t).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`, t));
 }
 
-function RoomOptimizationResults({ t, model, optimization, width, depth, height, roomVolume }: { t: Translator; model: EcoModel; optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
+function RoomOptimizationResults({ t, language, model, optimization, width, depth, height, roomVolume }: { t: Translator; language: Language; model: EcoModel; optimization: RoomOptimization; width: number; depth: number; height: number; roomVolume: number }) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
   const objectFloor = estimateObjectFloor(optimization.entries);
@@ -452,11 +456,11 @@ function RoomOptimizationResults({ t, model, optimization, width, depth, height,
         {optimization.groups.map((group) => (
           <article className="opt-group" key={group.category}>
             <div className="opt-title">
-              <div><CategoryBadge t={t} model={model} category={group.category} /><h3>{group.role}</h3>{group.supportCap != null && <small>{t("cap")} {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
+              <div><CategoryBadge t={t} language={language} model={model} category={group.category} /><h3>{displayGroupRole(group.role, t)}</h3>{group.supportCap != null && <small>{t("cap")} {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
-              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} summary={summary} />) : <div className="empty">{t("noItemWithFilters")}</div>}
+              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} summary={summary} />) : <div className="empty">{t("noItemWithFilters")}</div>}
             </div>
           </article>
         ))}
@@ -473,12 +477,12 @@ function OptimizationError({ t, message }: { t: Translator; message: string }) {
   return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
 }
 
-function RoomItem({ t, summary }: { t: Translator; summary: ReturnType<typeof summarizeEntries>[number] }) {
+function RoomItem({ t, language, summary }: { t: Translator; language: Language; summary: ReturnType<typeof summarizeEntries>[number] }) {
   const item = summary.item;
   return (
     <div className="opt-item">
       <div className="item-head">
-        <ItemName item={item} />
+        <ItemName language={language} item={item} />
         <b>x{summary.quantityPerRoom}</b>
       </div>
       <div className="pill-row">
@@ -500,7 +504,7 @@ function RoomItem({ t, summary }: { t: Translator; summary: ReturnType<typeof su
   );
 }
 
-function ObjectsPage({ model, t, config, update, selectedSkills }: { model: EcoModel; t: Translator; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
+function ObjectsPage({ model, t, language, config, update, selectedSkills }: { model: EcoModel; t: Translator; language: Language; config: AppConfig; update: (partial: Partial<AppConfig>) => void; selectedSkills: Set<SkillClass> }) {
   const [openFilter, setOpenFilter] = useState<{ key: "category" | "craft"; left: number; top: number } | null>(null);
   const pageRef = useRef<HTMLElement | null>(null);
   const resolver = useMemo(() => createCraftResolver(model, selectedSkills), [model, selectedSkills]);
@@ -518,7 +522,7 @@ function ObjectsPage({ model, t, config, update, selectedSkills }: { model: EcoM
       const resolution = resolver.resolve(item.itemClass);
       return resolution.craftable;
     })
-    .filter((item) => !query || [item.friendlyName, item.category, item.typeForRoomLimit, item.source].join(" ").toLowerCase().includes(query))
+    .filter((item) => !query || [displayItemName(item, language), item.friendlyName, displayCategoryName(model, item.category, language), item.category, item.typeForRoomLimit, item.source].join(" ").toLowerCase().includes(query))
     .sort((a, b) => sortObjects(a, b, config.objectSort));
 
   useEffect(() => {
@@ -576,7 +580,7 @@ function ObjectsPage({ model, t, config, update, selectedSkills }: { model: EcoM
                         checked={config.objectCategories.includes(category)}
                         onChange={() => update({ objectCategories: toggleFilterValue(config.objectCategories, category) })}
                       />
-                      <CategoryBadge t={t} model={model} category={category} />
+                      <CategoryBadge t={t} language={language} model={model} category={category} />
                     </label>
                   ))}
                 </FilterColumn>
@@ -635,7 +639,7 @@ function ObjectsPage({ model, t, config, update, selectedSkills }: { model: EcoM
                         checked={config.objectCraftSkills.includes(skill.className)}
                         onChange={() => update({ objectCraftSkills: toggleFilterValue(config.objectCraftSkills, skill.className) })}
                       />
-                      <SkillName skill={skill} />
+                      <SkillName language={language} skill={skill} />
                     </label>
                   ))}
                 </FilterColumn>
@@ -646,13 +650,13 @@ function ObjectsPage({ model, t, config, update, selectedSkills }: { model: EcoM
             {items.map((item) => {
               return (
                 <tr key={item.itemClass}>
-                  <td><ItemName item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
-                  <td><CategoryBadge t={t} model={model} category={item.category} /></td>
+                  <td><ItemName language={language} item={item} subtitle={item.typeForRoomLimit ?? "-"} /></td>
+                  <td><CategoryBadge t={t} language={language} model={model} category={item.category} /></td>
                   <td>{item.value}</td>
                   <td>{Math.round((item.diminishingReturnPercent ?? 1) * 100)}%</td>
                   <td>{formatFootprint(item)}</td>
                   <td>{item.requirements?.requiredRoomVolume ?? "-"}</td>
-                  <td><CraftSkillNames t={t} model={model} item={item} /></td>
+                  <td><CraftSkillNames t={t} language={language} model={model} item={item} /></td>
                 </tr>
               );
             })}
@@ -686,14 +690,39 @@ function floorAreaForSort(item: HousingItem) {
   return itemFootprint(item).floorArea;
 }
 
-function CategoryBadge({ t, model, category }: { t: Translator; model: EcoModel; category: string }) {
+function localizedName(entry: { localizedName?: Record<string, string>; friendlyName?: string; name?: string }, language: Language) {
+  return entry.localizedName?.[language] ?? entry.friendlyName ?? entry.name ?? "";
+}
+
+function displayItemName(item: HousingItem, language: Language) {
+  return localizedName(item, language) || item.friendlyName;
+}
+
+function displaySkillName(skill: Pick<Skill, "friendlyName" | "localizedName">, language: Language) {
+  return localizedName(skill, language) || skill.friendlyName;
+}
+
+function displayCategoryName(model: EcoModel, category: string, language: Language) {
+  const roomCategory = model.roomCategoryByName.get(category);
+  return roomCategory?.localizedName?.[language] ?? category;
+}
+
+function displayGroupRole(role: string, t: Translator) {
+  if (role === "definit la piece") return t("primaryRole");
+  if (role === "support general") return t("generalSupportRole");
+  if (role === "support") return t("supportRole");
+  return role;
+}
+
+function CategoryBadge({ t, language, model, category }: { t: Translator; language: Language; model: EcoModel; category: string }) {
   const roomCategory = model.roomCategoryByName.get(category);
   const color = roomCategory?.colorHex ?? fallbackCategoryColor(category);
   const source = roomCategory?.colorHex ? t("ecoColor") : roomCategory?.colorSource ? `${roomCategory.colorSource}, ${t("approximateColor")}` : t("appColor");
+  const label = displayCategoryName(model, category, language);
   return (
-    <span className="category-badge" style={{ "--category-color": color } as CSSProperties} title={`${category} - ${source}`}>
+    <span className="category-badge" style={{ "--category-color": color } as CSSProperties} title={`${label} - ${source}`}>
       <span aria-hidden="true" />
-      {category}
+      {label}
     </span>
   );
 }
@@ -724,13 +753,13 @@ function isCraftSkill(model: EcoModel, skillClass: SkillClass | null | undefined
   return !skill?.isProfession;
 }
 
-function CraftSkillNames({ t, model, item }: { t: Translator; model: EcoModel; item: HousingItem }) {
+function CraftSkillNames({ t, language, model, item }: { t: Translator; language: Language; model: EcoModel; item: HousingItem }) {
   const requirements = craftSkillRequirements(model, item);
   if (!requirements.length) return <span>{t("all")}</span>;
   return (
     <span className="skill-list-inline">
       {requirements.map(({ skill, level }) => (
-        <SkillName key={skill.className} skill={skill} suffix={level ? String(level) : undefined} />
+        <SkillName key={skill.className} language={language} skill={skill} suffix={level ? String(level) : undefined} />
       ))}
     </span>
   );
@@ -850,21 +879,21 @@ function HelpButton({ help }: { help: string }) {
   );
 }
 
-function OwnedItemsModal({ t, model, ownedItems, selectedSkills, onChange, onClose }: { t: Translator; model: EcoModel; ownedItems: Map<ItemClass, number>; selectedSkills: Set<SkillClass>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
+function OwnedItemsModal({ t, language, model, ownedItems, selectedSkills, onChange, onClose }: { t: Translator; language: Language; model: EcoModel; ownedItems: Map<ItemClass, number>; selectedSkills: Set<SkillClass>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
   const resolver = useMemo(() => createCraftResolver(model, selectedSkills), [model, selectedSkills]);
   const items = model.housingItems.filter((item) => resolver.resolve(item.itemClass).craftable).sort((a, b) => byName(a, b));
-  return <ItemQuantityModal t={t} title={t("ownedItemsTitle")} items={items} ownedItems={ownedItems} onChange={onChange} onClose={onClose} />;
+  return <ItemQuantityModal t={t} language={language} model={model} title={t("ownedItemsTitle")} items={items} ownedItems={ownedItems} onChange={onChange} onClose={onClose} />;
 }
 
-function ItemQuantityModal({ t, title, items, ownedItems, onChange, onClose }: { t: Translator; title: string; items: HousingItem[]; ownedItems: Map<ItemClass, number>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
+function ItemQuantityModal({ t, language, model, title, items, ownedItems, onChange, onClose }: { t: Translator; language: Language; model: EcoModel; title: string; items: HousingItem[]; ownedItems: Map<ItemClass, number>; onChange: (next: Map<ItemClass, number>) => void; onClose: () => void }) {
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
-  const filtered = items.filter((item) => !query || item.friendlyName.toLowerCase().includes(query)).slice(0, 220);
+  const filtered = items.filter((item) => !query || [displayItemName(item, language), item.friendlyName].join(" ").toLowerCase().includes(query)).slice(0, 220);
   return (
     <Modal title={title} onClose={onClose}>
       <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("filterObjects")} /><button onClick={() => onChange(new Map())}>{t("clear")}</button></div>
       <div className="modal-list">
-        {filtered.map((item) => <label className="quantity-row" key={item.itemClass}><ItemName item={item} subtitle={item.category} /><input type="number" min={0} max={999} value={ownedItems.get(item.itemClass) ?? 0} onChange={(event) => {
+        {filtered.map((item) => <label className="quantity-row" key={item.itemClass}><ItemName language={language} item={item} subtitle={displayCategoryName(model, item.category, language)} /><input type="number" min={0} max={999} value={ownedItems.get(item.itemClass) ?? 0} onChange={(event) => {
           const next = new Map(ownedItems);
           const quantity = Math.max(0, Number.parseInt(event.target.value, 10) || 0);
           if (quantity) next.set(item.itemClass, quantity);
@@ -876,10 +905,10 @@ function ItemQuantityModal({ t, title, items, ownedItems, onChange, onClose }: {
   );
 }
 
-function AllowedItemsModal({ t, model, disabledItems, onChange, onClose }: { t: Translator; model: EcoModel; disabledItems: Set<ItemClass>; onChange: (next: Set<ItemClass>) => void; onClose: () => void }) {
+function AllowedItemsModal({ t, language, model, disabledItems, onChange, onClose }: { t: Translator; language: Language; model: EcoModel; disabledItems: Set<ItemClass>; onChange: (next: Set<ItemClass>) => void; onClose: () => void }) {
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
-  const items = model.housingItems.filter((item) => !query || item.friendlyName.toLowerCase().includes(query)).sort((a, b) => byName(a, b)).slice(0, 260);
+  const items = model.housingItems.filter((item) => !query || [displayItemName(item, language), item.friendlyName].join(" ").toLowerCase().includes(query)).sort((a, b) => byName(a, b)).slice(0, 260);
   function setAllowed(item: HousingItem, allowed: boolean) {
     const next = new Set(disabledItems);
     if (allowed) next.delete(item.itemClass);
@@ -890,29 +919,29 @@ function AllowedItemsModal({ t, model, disabledItems, onChange, onClose }: { t: 
     <Modal title={t("optimizationPermissionsTitle")} onClose={onClose}>
       <div className="modal-tools"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("filterObjects")} /><button onClick={() => onChange(new Set())}>{t("allowAll")}</button></div>
       <div className="modal-list">
-        {items.map((item) => <label className="check-row modal-check" key={item.itemClass}><input type="checkbox" checked={!disabledItems.has(item.itemClass)} onChange={(event) => setAllowed(item, event.target.checked)} /><ItemName item={item} subtitle={item.category} /></label>)}
+        {items.map((item) => <label className="check-row modal-check" key={item.itemClass}><input type="checkbox" checked={!disabledItems.has(item.itemClass)} onChange={(event) => setAllowed(item, event.target.checked)} /><ItemName language={language} item={item} subtitle={displayCategoryName(model, item.category, language)} /></label>)}
       </div>
     </Modal>
   );
 }
 
-function ItemName({ item, subtitle }: { item: HousingItem; subtitle?: string | null }) {
+function ItemName({ language, item, subtitle }: { language: Language; item: HousingItem; subtitle?: string | null }) {
   return (
     <span className="item-name">
       <ItemIcon item={item} />
       <span>
-        <strong>{item.friendlyName}</strong>
+        <strong>{displayItemName(item, language)}</strong>
         {subtitle != null && <small>{subtitle}</small>}
       </span>
     </span>
   );
 }
 
-function SkillName({ skill, suffix }: { skill: Pick<Skill, "className" | "friendlyName" | "iconUrl">; suffix?: string }) {
+function SkillName({ language, skill, suffix }: { language: Language; skill: Pick<Skill, "className" | "friendlyName" | "localizedName" | "iconUrl">; suffix?: string }) {
   return (
     <span className="skill-name">
       <SkillIcon skill={skill} />
-      <span>{skill.friendlyName}{suffix ? ` ${suffix}` : ""}</span>
+      <span>{displaySkillName(skill, language)}{suffix ? ` ${suffix}` : ""}</span>
     </span>
   );
 }
