@@ -13,6 +13,7 @@ export interface AppConfig {
   height: number;
   roomSizeMode: "auto" | "manual" | "materials";
   materialBudget: number;
+  minXpEfficiencyPercent: number;
   devMode: boolean;
   selectedSkills: SkillClass[];
   disabledItems: ItemClass[];
@@ -32,6 +33,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   height: 3,
   roomSizeMode: "auto",
   materialBudget: 120,
+  minXpEfficiencyPercent: 20,
   devMode: false,
   selectedSkills: [],
   disabledItems: [],
@@ -65,12 +67,19 @@ export function loadConfig(): AppConfig {
       language: isLanguage(parsed.language) ? parsed.language : DEFAULT_CONFIG.language,
       roomSizeMode: parsed.roomSizeMode === "auto" || parsed.roomSizeMode === "manual" || parsed.roomSizeMode === "materials" ? parsed.roomSizeMode : DEFAULT_CONFIG.roomSizeMode,
       materialBudget: Number.isFinite(Number(parsed.materialBudget)) ? Number(parsed.materialBudget) : DEFAULT_CONFIG.materialBudget,
+      minXpEfficiencyPercent: normalizePercent(parsed.minXpEfficiencyPercent, DEFAULT_CONFIG.minXpEfficiencyPercent),
       devMode: Boolean(parsed.devMode),
       objectSort: parsed.objectSort === "name" ? DEFAULT_CONFIG.objectSort : parsed.objectSort ?? DEFAULT_CONFIG.objectSort,
     };
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+function normalizePercent(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(100, numeric));
 }
 
 export function saveConfig(config: AppConfig) {

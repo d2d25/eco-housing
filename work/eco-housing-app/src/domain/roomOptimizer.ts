@@ -265,6 +265,7 @@ function tryAddItemToCategoryPlan(
   if (rawScore <= 0) return null;
 
   const creditedScore = Math.min(rawScore, remainingScore);
+  if (!passesXpEfficiencyThreshold(context.input, item, creditedScore)) return null;
   const ownedAvailable = ownedRemaining(item.itemClass, context.input, plan.constraints) > 0;
   if (!ownedAvailable && creditedScore < MIN_NON_OWNED_CREDITED_SCORE) return null;
 
@@ -315,6 +316,17 @@ function tryAddItemToCategoryPlan(
     ownedCount: plan.ownedCount + (fromOwned ? 1 : 0),
     stableKey: entries.map((selected) => selected.item.friendlyName).sort().join(","),
   };
+}
+
+function passesXpEfficiencyThreshold(input: RoomInput, item: HousingItem, creditedScore: number) {
+  const minPercent = clampPercent(input.minXpEfficiencyPercent ?? 0);
+  if (minPercent <= 0 || item.value <= 0) return true;
+  return (creditedScore / item.value) * 100 >= minPercent;
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
 }
 
 function placementForItem(item: HousingItem, constraints: RoomConstraints) {

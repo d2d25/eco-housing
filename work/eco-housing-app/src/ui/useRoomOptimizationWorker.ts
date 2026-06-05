@@ -32,6 +32,7 @@ export function useRoomOptimizationWorker(args: {
     ownedItems: args.ownedItems,
     disabledItems: args.disabledItems,
     availability: "available",
+    minXpEfficiencyPercent: args.config.minXpEfficiencyPercent,
   }), [
     args.config.roomType,
     args.config.roomTier,
@@ -40,6 +41,7 @@ export function useRoomOptimizationWorker(args: {
     args.config.height,
     args.config.roomSizeMode,
     args.config.materialBudget,
+    args.config.minXpEfficiencyPercent,
     args.selectedSkills,
     args.ownedItems,
     args.disabledItems,
@@ -85,5 +87,6 @@ function toEcoData(model: EcoModel): EcoData {
     roomTiers: model.roomTiers,
     worldObjects: model.worldObjects,
     occupancy: model.occupancy,
+    housingEquivalenceGroups: model.housingEquivalenceGroups,
   };
 }

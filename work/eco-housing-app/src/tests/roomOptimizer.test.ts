@@ -289,6 +289,19 @@ describe("Room optimizer quality", () => {
     expect(result.score.afterSupportCaps).toBe(18);
   });
 
+  test("filters items below the minimum XP efficiency threshold", () => {
+    const synthetic = syntheticModel([
+      fixtureItem("Primary", "PrimaryItem", "Bathroom", 10, "Primary", { floorArea: 1 }),
+      fixtureItem("Capped Support", "CappedSupportItem", "Decoration", 10, "Support", { floorArea: 1 }),
+    ], { decorationSupportPercent: 0.5 });
+
+    const permissive = roomOptimization(synthetic, syntheticInput({ minXpEfficiencyPercent: 20 }));
+    const strict = roomOptimization(synthetic, syntheticInput({ minXpEfficiencyPercent: 60 }));
+
+    expect(names(permissive)).toEqual(["Primary", "Capped Support"]);
+    expect(names(strict)).toEqual(["Primary"]);
+  });
+
   test("optimizes the capped useful score instead of only filling raw category value", () => {
     const synthetic = syntheticModel([
       fixtureItem("Efficient Primary", "EfficientPrimaryItem", "Bathroom", 10, "Primary", { floorArea: 1 }),

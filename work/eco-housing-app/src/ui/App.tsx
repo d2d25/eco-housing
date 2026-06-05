@@ -302,6 +302,29 @@ function RoomPage(props: {
               )}
             </details>
           )}
+          <section className="room-option-range">
+            <span>
+              <strong>{t("minXpEfficiency")} ({config.minXpEfficiencyPercent}%)</strong>
+              <small>{t("minXpEfficiencyHelp")}</small>
+            </span>
+            <span className="range-control">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={config.minXpEfficiencyPercent}
+                onChange={(event) => update({ minXpEfficiencyPercent: clampPercent(Number(event.target.value)) })}
+              />
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={config.minXpEfficiencyPercent}
+                onChange={(event) => update({ minXpEfficiencyPercent: clampPercent(Number.parseInt(event.target.value, 10) || 0) })}
+              />
+            </span>
+          </section>
         </section>
         <RoomSummaryPanel
           t={t}
@@ -378,6 +401,7 @@ function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set
       depth: config.depth,
       height: config.height,
       volume: config.width * config.depth * config.height,
+      minXpEfficiencyPercent: config.minXpEfficiencyPercent,
       resolvedSize: optimization.resolvedSize,
     },
     selectedSkills: [...selectedSkills].sort().map((skillClass) => ({
@@ -478,6 +502,7 @@ function parseImportedIssueJson(data: unknown, model: EcoModel, t: Translator): 
       height: readNumber(roomInput.height, "roomInput.height", t),
       roomSizeMode: readRoomSizeMode(roomInput.sizeMode),
       materialBudget: Number(roomInput.materialBudget ?? DEFAULT_CONFIG.materialBudget),
+      minXpEfficiencyPercent: clampPercent(Number(roomInput.minXpEfficiencyPercent ?? DEFAULT_CONFIG.minXpEfficiencyPercent)),
       selectedSkills,
       disabledItems,
     },
@@ -1288,6 +1313,11 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
   return <label>{label}<input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Math.max(min, Math.min(max, Number.parseInt(event.target.value, 10) || min)))} /></label>;
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
 }
 
 function Metric({ label, value, delta = 0 }: { label: string; value: number; delta?: number }) {

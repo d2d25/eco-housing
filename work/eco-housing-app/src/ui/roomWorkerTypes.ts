@@ -12,6 +12,7 @@ export interface SerializedRoomInput {
   ownedItems: [ItemClass, number][];
   disabledItems: ItemClass[];
   availability: RoomInput["availability"];
+  minXpEfficiencyPercent?: number;
 }
 
 export interface RoomWorkerRequest {
@@ -36,6 +37,7 @@ export function serializeRoomInput(input: RoomInput): SerializedRoomInput {
     ownedItems: [...input.ownedItems.entries()],
     disabledItems: [...input.disabledItems],
     availability: input.availability,
+    minXpEfficiencyPercent: input.minXpEfficiencyPercent,
   };
 }
 
@@ -52,5 +54,6 @@ export function deserializeRoomInput(input: SerializedRoomInput): RoomInput {
     ownedItems: new Map(input.ownedItems),
     disabledItems: new Set(input.disabledItems),
     availability: input.availability,
+    minXpEfficiencyPercent: input.minXpEfficiencyPercent,
   };
 }

@@ -208,6 +208,7 @@ export interface RoomInput {
   ownedItems: Map<ItemClass, number>;
   disabledItems: Set<ItemClass>;
   availability: "available" | "all" | "locked";
+  minXpEfficiencyPercent?: number;
   objective?: OptimizationObjective;
 }
 

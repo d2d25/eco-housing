@@ -16,6 +16,7 @@ describe("room worker serialization", () => {
       ownedItems: new Map([["StumpLatrineItem", 2], ["TorchStandItem", 1]]),
       disabledItems: new Set(["ChandelierItem"]),
       availability: "available",
+      minXpEfficiencyPercent: 20,
     };
 
     const serialized = serializeRoomInput(input);
@@ -23,6 +24,7 @@ describe("room worker serialization", () => {
     expect(serialized.selectedSkills).toEqual(["LoggingSkill", "CarpentrySkill"]);
     expect(serialized.ownedItems).toEqual([["StumpLatrineItem", 2], ["TorchStandItem", 1]]);
     expect(serialized.disabledItems).toEqual(["ChandelierItem"]);
+    expect(serialized.minXpEfficiencyPercent).toBe(20);
 
     const rebuilt = deserializeRoomInput(serialized);
 
@@ -36,5 +38,6 @@ describe("room worker serialization", () => {
     expect([...rebuilt.selectedSkills]).toEqual(["LoggingSkill", "CarpentrySkill"]);
     expect([...rebuilt.ownedItems.entries()]).toEqual([["StumpLatrineItem", 2], ["TorchStandItem", 1]]);
     expect([...rebuilt.disabledItems]).toEqual(["ChandelierItem"]);
+    expect(rebuilt.minXpEfficiencyPercent).toBe(20);
   });
 });
