@@ -63,13 +63,27 @@ export function buildModel(data: EcoData): EcoModel {
       };
     });
   const housingByClass = new Map(housingItems.map((item) => [item.itemClass, item]));
+  const equivalenceGroupByKey = new Map((data.housingEquivalenceGroups ?? []).map((group) => [group.key, group]));
+  const equivalenceGroupByItemClass = new Map<string, NonNullable<typeof data.housingEquivalenceGroups>[number]>();
+  for (const group of data.housingEquivalenceGroups ?? []) {
+    for (const itemClass of group.itemClasses) equivalenceGroupByItemClass.set(itemClass, group);
+  }
   const variantItemsByBase = new Map<string, HousingItem[]>();
+  const equivalentItemsByBase = new Map<string, HousingItem[]>();
   for (const item of housingItems) {
     if (!item.variantGroupKey || item.variantOfItemClass) continue;
     const variants = (item.variantItemClasses ?? [])
       .map((itemClass) => housingByClass.get(itemClass))
       .filter((variant): variant is HousingItem => Boolean(variant));
     if (variants.length > 1) variantItemsByBase.set(item.itemClass, variants);
+  }
+  for (const item of housingItems) {
+    if (!item.equivalenceGroupKey || item.variantOfItemClass) continue;
+    const equivalents = (item.equivalentItemClasses ?? [])
+      .map((itemClass) => housingByClass.get(itemClass))
+      .filter((equivalent): equivalent is HousingItem => Boolean(equivalent))
+      .filter((equivalent) => !equivalent.variantOfItemClass);
+    if (equivalents.length > 1) equivalentItemsByBase.set(item.itemClass, equivalents);
   }
 
   return {
@@ -86,6 +100,9 @@ export function buildModel(data: EcoData): EcoModel {
     occupancyByWorldObject,
     requirementsByWorldObject,
     variantItemsByBase,
+    equivalentItemsByBase,
+    equivalenceGroupByKey,
+    equivalenceGroupByItemClass,
   };
 }
 

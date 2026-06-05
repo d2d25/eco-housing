@@ -18,6 +18,8 @@ export interface EcoItem {
   variantGroupKey?: string | null;
   variantOfItemClass?: ItemClass | null;
   variantItemClasses?: ItemClass[];
+  equivalenceGroupKey?: string | null;
+  equivalentItemClasses?: ItemClass[];
   source?: string;
 }
 
@@ -43,7 +45,21 @@ export interface HousingValue {
   variantGroupKey?: string | null;
   variantOfItemClass?: ItemClass | null;
   variantItemClasses?: ItemClass[];
+  equivalenceGroupKey?: string | null;
+  equivalentItemClasses?: ItemClass[];
   source?: string;
+}
+
+export interface HousingEquivalenceOption {
+  itemClass: ItemClass;
+  variantItemClasses?: ItemClass[];
+  requiredSkillClasses?: SkillClass[];
+}
+
+export interface HousingEquivalenceGroup {
+  key: string;
+  itemClasses: ItemClass[];
+  options: HousingEquivalenceOption[];
 }
 
 export interface RecipeElement {
@@ -139,6 +155,7 @@ export interface EcoData {
   roomTiers: RoomTier[];
   worldObjects: WorldObjectRequirement[];
   occupancy: Occupancy[];
+  housingEquivalenceGroups?: HousingEquivalenceGroup[];
 }
 
 export interface HousingItem extends HousingValue {
@@ -163,6 +180,9 @@ export interface EcoModel extends EcoData {
   occupancyByWorldObject: Map<WorldObjectClass, Occupancy>;
   requirementsByWorldObject: Map<WorldObjectClass, WorldObjectRequirement>;
   variantItemsByBase: Map<ItemClass, HousingItem[]>;
+  equivalentItemsByBase: Map<ItemClass, HousingItem[]>;
+  equivalenceGroupByKey: Map<string, HousingEquivalenceGroup>;
+  equivalenceGroupByItemClass: Map<ItemClass, HousingEquivalenceGroup>;
 }
 
 export interface CraftRequirement {

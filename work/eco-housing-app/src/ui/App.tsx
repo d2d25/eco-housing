@@ -317,7 +317,7 @@ function RoomPage(props: {
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
       {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} devMode={config.devMode} />
+        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} devMode={config.devMode} selectedSkills={selectedSkills} />
       )}
     </section>
   );
@@ -524,6 +524,7 @@ function RoomOptimizationResults({
   roomVolume,
   usesRoomSize,
   devMode,
+  selectedSkills,
 }: {
   t: Translator;
   language: Language;
@@ -535,6 +536,7 @@ function RoomOptimizationResults({
   roomVolume: number;
   usesRoomSize: boolean;
   devMode: boolean;
+  selectedSkills: Set<SkillClass>;
 }) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
@@ -562,13 +564,13 @@ function RoomOptimizationResults({
 
       <section className="optimizer-grid">
         {optimization.groups.map((group) => (
-          <article className="opt-group" key={group.category}>
+          <article className="opt-group" key={group.category} style={{ "--category-color": categoryColor(model, group.category) } as CSSProperties}>
             <div className="opt-title">
               <div><CategoryBadge t={t} language={language} model={model} category={group.category} /><h3>{displayGroupRole(group.role, t)}</h3>{group.supportCap != null && <small>{t("cap")} {Math.round((group.supportCapPercent ?? 0) * 100)}%: {group.supportCap.toFixed(1)}</small>}</div>
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
-              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} devMode={devMode} />) : <div className="empty">{t("noItemWithFilters")}</div>}
+              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} devMode={devMode} selectedSkills={selectedSkills} />) : <div className="empty">{t("noItemWithFilters")}</div>}
             </div>
           </article>
         ))}
@@ -585,48 +587,66 @@ function OptimizationError({ t, message }: { t: Translator; message: string }) {
   return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
 }
 
-function RoomItem({ t, language, model, summary, devMode }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; devMode: boolean }) {
+function RoomItem({ t, language, model, summary, devMode, selectedSkills }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; devMode: boolean; selectedSkills: Set<SkillClass> }) {
   const item = summary.item;
+  const [variantModal, setVariantModal] = useState<{ title: string; variants: HousingItem[] } | null>(null);
   const variants = variantAlternatives(model, item);
+  const equivalentChoices = equivalentChoiceGroups(model, item, selectedSkills);
+  const isEquivalentGroup = equivalentChoices.length > 0;
   return (
-    <details className="opt-item">
-      <summary className="room-item-summary">
-        <span className="room-item-title">
-          <ItemName language={language} item={item} />
-          <b>x{summary.quantityPerRoom}</b>
-        </span>
+    <>
+      <details className={isEquivalentGroup ? "opt-item equivalent-card" : "opt-item"}>
+        <summary className="room-item-summary">
+          <span className="room-item-title">
+            {isEquivalentGroup ? (
+              <span className="equivalent-title">
+                <strong>{item.typeForRoomLimit ?? displayCategoryName(model, item.category, language)}</strong>
+                <small>{t("equivalentChoiceCard")}</small>
+              </span>
+            ) : (
+              <ItemName language={language} item={item} />
+            )}
+            {!isEquivalentGroup && variants.length > 1 && (
+              <button className="inline-variant-button" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setVariantModal({ title: displayItemName(item, language), variants }); }}>
+                {variants.length} {t("variants")}
+              </button>
+            )}
+            <b>x{summary.quantityPerRoom}</b>
+          </span>
         <span className={`room-item-metrics${devMode ? " has-give" : ""}`}>
           <MetricBadge label="XP" value={summary.score.toFixed(2)} />
           <MetricBadge label={t("floorShort")} value={String(summary.totalFloor)} />
           <MetricBadge label={t("m3Short")} value={String(summary.totalRequiredVolume)} />
           {devMode && <button className="copy-give-button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copyText(giveCommand(item, summary.quantityPerRoom)); }}>{t("copyGive")}</button>}
         </span>
-      </summary>
-      <div className="room-item-detail">
-        <div className="detail-grid">
-          <DetailMetric label={t("xpPerObject")} value={`+${formatCompactNumber(summary.score / summary.quantityPerRoom)}`} />
-          <DetailMetric label={t("m3PerObject")} value={formatCompactNumber(summary.totalRequiredVolume / summary.quantityPerRoom)} />
-          <DetailMetric label={t("floorFootprintPerObject")} value={formatFootprint(item)} />
-        </div>
-        <table className="item-breakdown-table">
-          <thead><tr><th>{t("copyIndex")}</th><th>%</th><th>XP</th></tr></thead>
-          <tbody>{summary.rows.map((row) => <tr key={row.index}><td>#{row.index}</td><td>{Math.round(row.multiplier * 100)}%</td><td>{formatCompactNumber(row.score)}</td></tr>)}</tbody>
-        </table>
-        {devMode && (
-          <div className="dev-panel">
-            <div className="pill-row compact">
-              {summary.fromOwned > 0 && <span className="pill">{t("owned")} x{summary.fromOwned}</span>}
-              {summary.rawScore - summary.score > 0.01 && <span className="pill warn">cap -{(summary.rawScore - summary.score).toFixed(2)}</span>}
-              {summary.totalSurfaceProvided > 0 && <span className="pill">{t("surface")} +{summary.totalSurfaceProvided}</span>}
-              {summary.totalSurfaceRequired > 0 && <span className="pill">{t("surface")} -{summary.totalSurfaceRequired}</span>}
-              {summary.placedOnFloor && <span className="pill warn">{t("floorPlacement")}</span>}
-              {item.requirements?.requiredRoomMaterialTier != null && <span className="pill">T{item.requirements.requiredRoomMaterialTier}</span>}
-            </div>
-            {variants.length > 0 && <VariantDetails t={t} language={language} variants={variants} />}
+          {isEquivalentGroup && <EquivalentChoices t={t} language={language} choices={equivalentChoices} onOpenVariants={(title, choiceVariants) => setVariantModal({ title, variants: choiceVariants })} />}
+        </summary>
+        <div className="room-item-detail">
+          <div className="detail-grid">
+            <DetailMetric label={t("xpPerObject")} value={`+${formatCompactNumber(summary.score / summary.quantityPerRoom)}`} />
+            <DetailMetric label={t("m3PerObject")} value={formatCompactNumber(summary.totalRequiredVolume / summary.quantityPerRoom)} />
+            <DetailMetric label={t("floorFootprintPerObject")} value={formatFootprint(item)} />
           </div>
-        )}
-      </div>
-    </details>
+          <table className="item-breakdown-table">
+            <thead><tr><th>{t("copyIndex")}</th><th>%</th><th>XP</th></tr></thead>
+            <tbody>{summary.rows.map((row) => <tr key={row.index}><td>#{row.index}</td><td>{Math.round(row.multiplier * 100)}%</td><td>{formatCompactNumber(row.score)}</td></tr>)}</tbody>
+          </table>
+          {devMode && (
+            <div className="dev-panel">
+              <div className="pill-row compact">
+                {summary.fromOwned > 0 && <span className="pill">{t("owned")} x{summary.fromOwned}</span>}
+                {summary.rawScore - summary.score > 0.01 && <span className="pill warn">cap -{(summary.rawScore - summary.score).toFixed(2)}</span>}
+                {summary.totalSurfaceProvided > 0 && <span className="pill">{t("surface")} +{summary.totalSurfaceProvided}</span>}
+                {summary.totalSurfaceRequired > 0 && <span className="pill">{t("surface")} -{summary.totalSurfaceRequired}</span>}
+                {summary.placedOnFloor && <span className="pill warn">{t("floorPlacement")}</span>}
+                {item.requirements?.requiredRoomMaterialTier != null && <span className="pill">T{item.requirements.requiredRoomMaterialTier}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      </details>
+      {variantModal && <VariantModal t={t} language={language} title={variantModal.title} variants={variantModal.variants} onClose={() => setVariantModal(null)} />}
+    </>
   );
 }
 
@@ -844,6 +864,7 @@ function floorAreaForSort(item: HousingItem) {
 
 function objectSearchText(model: EcoModel, item: HousingItem, language: Language) {
   const variants = variantAlternatives(model, item);
+  const equivalents = equivalentAlternatives(model, item);
   return [
     displayItemName(item, language),
     item.friendlyName,
@@ -852,11 +873,47 @@ function objectSearchText(model: EcoModel, item: HousingItem, language: Language
     item.typeForRoomLimit,
     item.source,
     ...variants.flatMap((variant) => [displayItemName(variant, language), variant.friendlyName]),
+    ...equivalents.flatMap((equivalent) => [displayItemName(equivalent, language), equivalent.friendlyName]),
   ].join(" ").toLowerCase();
 }
 
 function variantAlternatives(model: EcoModel, item: HousingItem) {
   return (model.variantItemsByBase.get(item.itemClass) ?? []).filter((variant) => variant.itemClass !== item.itemClass);
+}
+
+function equivalentAlternatives(model: EcoModel, item: HousingItem) {
+  const group = model.equivalenceGroupByItemClass.get(item.itemClass);
+  if (!group) return [];
+  return group.itemClasses
+    .map((itemClass) => model.housingItems.find((housingItem) => housingItem.itemClass === itemClass))
+    .filter((equivalent): equivalent is HousingItem => Boolean(equivalent))
+    .filter((equivalent) => equivalent.itemClass !== item.itemClass);
+}
+
+function equivalentChoiceGroups(model: EcoModel, item: HousingItem, selectedSkills: Set<SkillClass>) {
+  const group = model.equivalenceGroupByItemClass.get(item.itemClass);
+  if (!group) return [];
+  return group.options
+    .map((option) => {
+      const optionItem = model.housingItems.find((housingItem) => housingItem.itemClass === option.itemClass);
+      if (!optionItem) return null;
+      const variants = (option.variantItemClasses ?? [option.itemClass])
+        .map((itemClass) => model.housingItems.find((housingItem) => housingItem.itemClass === itemClass))
+        .filter((variant): variant is HousingItem => Boolean(variant));
+      const available = option.requiredSkillClasses?.length
+        ? option.requiredSkillClasses.some((skillClass) => selectedSkills.has(skillClass))
+        : optionItem.craftableWithoutSkill || optionItem.recipes.length === 0;
+      return {
+        item: optionItem,
+        variants,
+        available,
+        skillNames: (option.requiredSkillClasses ?? [])
+          .map((skillClass) => model.skillsByClass.get(skillClass)?.friendlyName ?? skillClass.replace(/Skill$/, ""))
+          .sort(),
+      };
+    })
+    .filter((choice): choice is NonNullable<typeof choice> => Boolean(choice))
+    .filter((choice, _index, choices) => choices.some((candidate) => candidate.available) ? choice.available : true);
 }
 
 function VariantDetails({ t, language, variants }: { t: Translator; language: Language; variants: HousingItem[] }) {
@@ -869,6 +926,49 @@ function VariantDetails({ t, language, variants }: { t: Translator; language: La
         ))}
       </div>
     </details>
+  );
+}
+
+function VariantModal({ t, language, title, variants, onClose }: { t: Translator; language: Language; title: string; variants: HousingItem[]; onClose: () => void }) {
+  return (
+    <Modal title={`${title} - ${t("variants")}`} onClose={onClose}>
+      <div className="variant-modal-list">
+        {variants.map((variant) => (
+          <ItemName key={variant.itemClass} language={language} item={variant} />
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function EquivalentChoices({ t, language, choices, onOpenVariants }: { t: Translator; language: Language; choices: ReturnType<typeof equivalentChoiceGroups>; onOpenVariants: (title: string, variants: HousingItem[]) => void }) {
+  return (
+    <div className="equivalent-choices" aria-label={t("equivalents")}>
+      <span>{t("equivalentOptions")}</span>
+      <div>
+        {choices.map((choice) => (
+          <span className="equivalent-choice" key={choice.item.itemClass}>
+            <span className="equivalent-choice-main">
+              <ItemName language={language} item={choice.item} />
+              {choice.skillNames.length > 0 && <small>{choice.skillNames.join(", ")}</small>}
+            </span>
+            {choice.variants.length > 1 && (
+              <button
+                className="inline-variant-button"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenVariants(displayItemName(choice.item, language), choice.variants);
+                }}
+              >
+                {choice.variants.length} {t("variants")}
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -898,7 +998,7 @@ function displayGroupRole(role: string, t: Translator) {
 
 function CategoryBadge({ t, language, model, category }: { t: Translator; language: Language; model: EcoModel; category: string }) {
   const roomCategory = model.roomCategoryByName.get(category);
-  const color = roomCategory?.colorHex ?? fallbackCategoryColor(category);
+  const color = categoryColor(model, category);
   const source = roomCategory?.colorHex ? t("ecoColor") : roomCategory?.colorSource ? `${roomCategory.colorSource}, ${t("approximateColor")}` : t("appColor");
   const label = displayCategoryName(model, category, language);
   return (
@@ -907,6 +1007,10 @@ function CategoryBadge({ t, language, model, category }: { t: Translator; langua
       {label}
     </span>
   );
+}
+
+function categoryColor(model: EcoModel, category: string) {
+  return model.roomCategoryByName.get(category)?.colorHex ?? fallbackCategoryColor(category);
 }
 
 function fallbackCategoryColor(value: string) {

@@ -209,13 +209,33 @@ export function generateCategoryPlans(
 }
 
 function candidateItemsForCategory(context: OptimizationContext, category: string) {
-  return context.model.housingItems
+  const items = context.model.housingItems
     .filter((item) => item.category === category)
     .filter((item) => !item.variantOfItemClass)
     .filter((item) => availabilityFilter(item, context))
     .filter((item) => !context.input.disabledItems.has(item.itemClass))
-    .sort((a, b) => b.value - a.value || byName(a, b))
-    .slice(0, CANDIDATE_LIMIT);
+    .sort((a, b) => b.value - a.value || byName(a, b));
+  return dedupeEquivalentCandidates(context, items).slice(0, CANDIDATE_LIMIT);
+}
+
+function dedupeEquivalentCandidates(context: OptimizationContext, items: HousingItem[]) {
+  const bestByEquivalence = new Map<string, HousingItem>();
+  for (const item of items) {
+    const key = item.equivalenceGroupKey ?? item.itemClass;
+    const current = bestByEquivalence.get(key);
+    if (!current || compareEquivalentRepresentative(context, item, current) < 0) {
+      bestByEquivalence.set(key, item);
+    }
+  }
+  return [...bestByEquivalence.values()].sort((a, b) => b.value - a.value || byName(a, b));
+}
+
+function compareEquivalentRepresentative(context: OptimizationContext, a: HousingItem, b: HousingItem) {
+  const ownedA = ownedRemaining(a.itemClass, context.input, createInitialConstraints(context.input)) > 0;
+  const ownedB = ownedRemaining(b.itemClass, context.input, createInitialConstraints(context.input)) > 0;
+  const craftableA = context.craftResolver.resolve(a.itemClass).craftable;
+  const craftableB = context.craftResolver.resolve(b.itemClass).craftable;
+  return Number(ownedB) - Number(ownedA) || Number(craftableB) - Number(craftableA) || byName(a, b);
 }
 
 function availabilityFilter(item: HousingItem, context: OptimizationContext) {

@@ -313,6 +313,18 @@ describe("Room optimizer quality", () => {
     expect(names(result)).toEqual(["Zulu Owned"]);
     expect(result.entries[0]?.fromOwned).toBe(true);
   });
+
+  test("deduplicates equivalent candidates and prefers the owned equivalent", () => {
+    const synthetic = syntheticModel([
+      fixtureItem("Alpha Equivalent", "AlphaEquivalentItem", "Bathroom", 5, "Primary", { floorArea: 1, equivalenceKey: "bench-equivalent" }),
+      fixtureItem("Zulu Equivalent", "ZuluEquivalentItem", "Bathroom", 5, "Primary", { floorArea: 1, equivalenceKey: "bench-equivalent" }),
+    ]);
+
+    const result = roomOptimization(synthetic, syntheticInput({ ownedItems: new Map([["ZuluEquivalentItem", 1]]) }));
+
+    expect(names(result)).toEqual(["Zulu Equivalent"]);
+    expect(result.entries[0]?.fromOwned).toBe(true);
+  });
 });
 
 function requiredVolume(name: string, count = 1) {
@@ -341,7 +353,7 @@ function fixtureItem(
   category: string,
   value: number,
   typeForRoomLimit: string,
-  options: { volume?: number; floorArea?: number; surfaceProvided?: boolean; canBeOnSurface?: boolean; petals?: boolean } = {},
+  options: { volume?: number; floorArea?: number; surfaceProvided?: boolean; canBeOnSurface?: boolean; petals?: boolean; equivalenceKey?: string } = {},
 ) {
   const worldObjectClass = options.petals ? null : `${itemClass.replace(/Item$/, "")}Object`;
   return {
@@ -358,6 +370,8 @@ function fixtureItem(
         ...(options.surfaceProvided ? ["SurfaceTags.HasTableSurface"] : []),
         ...(options.canBeOnSurface ? ["SurfaceTags.CanBeOnSurface"] : []),
       ],
+      equivalenceGroupKey: options.equivalenceKey ?? null,
+      equivalentItemClasses: options.equivalenceKey ? ["AlphaEquivalentItem", "ZuluEquivalentItem"] : undefined,
       hiddenCategory: false,
       notInBrowser: false,
     },
@@ -369,6 +383,8 @@ function fixtureItem(
         ...(options.petals ? ["Petals"] : []),
         ...(options.canBeOnSurface ? ["SurfaceTags.CanBeOnSurface"] : []),
       ],
+      equivalenceGroupKey: options.equivalenceKey ?? null,
+      equivalentItemClasses: options.equivalenceKey ? ["AlphaEquivalentItem", "ZuluEquivalentItem"] : undefined,
     },
     worldObject: worldObjectClass ? {
       className: worldObjectClass,

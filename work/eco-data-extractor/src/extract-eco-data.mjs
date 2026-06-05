@@ -824,6 +824,12 @@ function annotateVariantEntry(entry, groupKey, baseItemClass, variantItemClasses
   entry.variantItemClasses = variantItemClasses;
 }
 
+function annotateEquivalenceEntry(entry, groupKey, itemClasses) {
+  if (!entry) return;
+  entry.equivalenceGroupKey = groupKey;
+  entry.equivalentItemClasses = itemClasses;
+}
+
 function addVariantGroups(result) {
   const recipesByClass = new Map(result.recipes.map((recipe) => [recipe.className, recipe]));
   const itemsByClass = new Map(result.items.map((item) => [item.className, item]));
@@ -863,6 +869,93 @@ function addVariantGroups(result) {
     groups: groups.size,
     items: [...groups.values()].reduce((total, group) => total + group.itemClasses.size, 0),
   };
+}
+
+function addEquivalenceGroups(result) {
+  const housingByClass = new Map(result.housing.map((entry) => [entry.itemClass, entry]));
+  const itemsByClass = new Map(result.items.map((entry) => [entry.className, entry]));
+  const occupancyByWorldObject = new Map(result.occupancy.map((entry) => [entry.worldObjectClass, entry]));
+  const worldObjectByClass = new Map(result.worldObjects.map((entry) => [entry.className, entry]));
+  const recipesByProduct = new Map();
+  for (const recipe of result.recipes) {
+    for (const product of recipe.products ?? []) {
+      if (!product.itemClass) continue;
+      const recipes = recipesByProduct.get(product.itemClass) ?? [];
+      recipes.push(recipe);
+      recipesByProduct.set(product.itemClass, recipes);
+    }
+  }
+  const groups = new Map();
+
+  for (const housing of result.housing) {
+    if (housing.variantOfItemClass) continue;
+    const key = equivalenceKey(housing, occupancyByWorldObject.get(housing.worldObjectClass), worldObjectByClass.get(housing.worldObjectClass));
+    const group = groups.get(key) ?? [];
+    group.push(housing.itemClass);
+    groups.set(key, group);
+  }
+
+  let equivalentItems = 0;
+  let equivalentGroups = 0;
+  const housingEquivalenceGroups = [];
+  for (const [key, itemClasses] of groups.entries()) {
+    if (itemClasses.length <= 1) continue;
+    equivalentGroups += 1;
+    equivalentItems += itemClasses.length;
+    const sorted = itemClasses.sort((a, b) => {
+      const itemA = housingByClass.get(a);
+      const itemB = housingByClass.get(b);
+      return (itemA?.friendlyName ?? a).localeCompare(itemB?.friendlyName ?? b);
+    });
+    for (const itemClass of sorted) {
+      annotateEquivalenceEntry(housingByClass.get(itemClass), key, sorted);
+      annotateEquivalenceEntry(itemsByClass.get(itemClass), key, sorted);
+    }
+    housingEquivalenceGroups.push({
+      key,
+      itemClasses: sorted,
+      options: sorted.map((itemClass) => {
+        const housing = housingByClass.get(itemClass);
+        const skillClasses = [...new Set((recipesByProduct.get(itemClass) ?? []).map((recipe) => recipe.requiredSkillClass).filter(Boolean))].sort();
+        return {
+          itemClass,
+          variantItemClasses: housing?.variantItemClasses ?? [itemClass],
+          requiredSkillClasses: skillClasses,
+        };
+      }),
+    });
+  }
+
+  result.housingEquivalenceGroups = housingEquivalenceGroups.sort((a, b) => a.itemClasses[0].localeCompare(b.itemClasses[0]));
+  result.meta.equivalences = {
+    groups: equivalentGroups,
+    items: equivalentItems,
+  };
+}
+
+function equivalenceKey(housing, occupancy, worldObject) {
+  const tags = [...new Set([...(housing.tags ?? []), ...(worldObject?.tags ?? [])])]
+    .filter((tag) => tag === "Petals" || tag.startsWith("SurfaceTags."))
+    .sort();
+  return JSON.stringify({
+    category: housing.category,
+    value: housing.value,
+    typeForRoomLimit: housing.typeForRoomLimit ?? null,
+    diminishingReturnPercent: housing.diminishingReturnPercent ?? null,
+    diminishingMultiplierAcrossFullProperty: housing.diminishingMultiplierAcrossFullProperty ?? null,
+    hasDynamicFurnishingValue: Boolean(housing.hasDynamicFurnishingValue),
+    tags,
+    attachmentDirections: [...new Set([...(housing.attachmentDirections ?? []), ...(worldObject?.attachmentDirections ?? [])])].sort(),
+    requiredRoomVolume: worldObject?.requiredRoomVolume ?? null,
+    requiredRoomMaterialTier: worldObject?.requiredRoomMaterialTier ?? null,
+    requireRoomContainment: Boolean(worldObject?.requireRoomContainment),
+    occupancy: occupancy ? {
+      floorArea: occupancy.floorArea,
+      width: occupancy.width,
+      depth: occupancy.depth,
+      height: occupancy.height,
+    } : null,
+  });
 }
 
 function runProcess(command, args) {
@@ -951,6 +1044,7 @@ async function extract(modsPath, options = {}) {
   result.roomCategories = result.roomCategories.sort((a, b) => a.name.localeCompare(b.name));
   result.roomTiers = result.roomTiers.sort((a, b) => a.tier - b.tier);
   addVariantGroups(result);
+  addEquivalenceGroups(result);
   addLocalizedNames(result, gameTranslations);
   await addIconUrls(result, options.iconsDir);
   result.meta.counts = {
