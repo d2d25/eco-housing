@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { buildModel } from "../domain/model";
-import { estimateHouseMaterials, optimizeHouse } from "../domain/houseOptimizer";
+import { clearHouseOptimizationCache, estimateHouseMaterials, optimizeHouse } from "../domain/houseOptimizer";
 import type { EcoData, HouseInput, HouseLayoutRoom } from "../domain/types";
 
 const data: EcoData = {
@@ -108,6 +108,19 @@ describe("house optimizer", () => {
     expect(bedroom?.quantity).toBeGreaterThan(1);
   });
 
+  test("minimum XP efficiency also limits duplicated room copies", () => {
+    const result = optimizeHouse(model, baseInput({
+      maxCopiesPerRoomType: "auto",
+      materialBudget: 500,
+      minXpEfficiencyPercent: 50,
+      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+    }));
+    const bedroom = result.rooms.find((room) => room.roomType === "Bedroom");
+
+    expect(bedroom?.quantity).toBeLessThanOrEqual(2);
+    expect(bedroom?.copyScores.every((copy) => copy.multiplier * 100 >= 50)).toBe(true);
+  });
+
   test("can prefer more smaller rooms over fewer fully furnished rooms", () => {
     const result = optimizeHouse(model, baseInput({
       maxCopiesPerRoomType: "auto",
@@ -165,5 +178,19 @@ describe("house optimizer", () => {
     expect(result.rooms.find((room) => room.roomType === "Bedroom")?.quantity).toBeGreaterThan(1);
     expect(bed?.ownedUsed).toBe(1);
     expect(bed?.craftQuantity).toBe((bed?.quantity ?? 0) - 1);
+  });
+
+  test("caches house results without returning mutable shared objects", () => {
+    clearHouseOptimizationCache(model);
+    const input = baseInput({ maxCopiesPerRoomType: "auto", materialBudget: 500 });
+    const first = optimizeHouse(model, input);
+    const expectedScore = first.score;
+    first.score = -1;
+    first.rooms.length = 0;
+
+    const cached = optimizeHouse(model, input);
+
+    expect(cached.score).toBe(expectedScore);
+    expect(cached.rooms.length).toBeGreaterThan(0);
   });
 });

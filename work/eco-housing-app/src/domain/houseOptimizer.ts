@@ -6,6 +6,8 @@ const AUTO_MAX_COPIES = 4;
 const SCORE_EPSILON = 0.01;
 const ROOM_TARGET_RATIOS = [0.25, 0.4, 0.6, 0.8];
 const MAX_CANDIDATES_PER_ROOM_TYPE = 6;
+const RESULT_CACHE_LIMIT = 50;
+const houseOptimizationCacheByModel = new WeakMap<EcoModel, Map<string, HouseOptimizationResult>>();
 
 interface RoomCandidate {
   roomType: string;
@@ -36,9 +38,17 @@ interface RoomCandidateGroup {
 }
 
 export function optimizeHouse(model: EcoModel, input: HouseInput): HouseOptimizationResult {
+  const cached = getCachedHouseOptimization(model, input);
+  if (cached) return cached;
   const candidates = buildRoomCandidates(model, input);
   const best = enumerateHousePlans(model, input, candidates);
-  return best ? countPlanToResult(input, best) : emptyHouseResult(input, candidates.length ? [] : ["No room can score with the current filters."]);
+  const result = best ? countPlanToResult(input, best) : emptyHouseResult(input, candidates.length ? [] : ["No room can score with the current filters."]);
+  setCachedHouseOptimization(model, input, result);
+  return result;
+}
+
+export function clearHouseOptimizationCache(model?: EcoModel) {
+  if (model) houseOptimizationCacheByModel.delete(model);
 }
 
 export function estimateHouseMaterials(roomCopies: HouseLayoutRoom[], budget: number): HouseMaterialSummary {
@@ -61,7 +71,8 @@ function buildRoomCandidates(model: EcoModel, input: HouseInput): RoomCandidate[
     .flatMap((room) => {
       const baseInput = roomInputForHouse(input, room.name);
       const full = optimizeRoom(model, baseInput);
-      const maxCopies = room.name === "Outdoor" ? 1 : input.maxCopiesPerRoomType === "auto" ? AUTO_MAX_COPIES : input.maxCopiesPerRoomType;
+      const requestedMaxCopies = room.name === "Outdoor" ? 1 : input.maxCopiesPerRoomType === "auto" ? AUTO_MAX_COPIES : input.maxCopiesPerRoomType;
+      const maxCopies = capRoomCopiesByEfficiency(model, input, requestedMaxCopies);
       if (maxCopies <= 0 || full.score.capped <= SCORE_EPSILON) return [];
 
       const targetOptimizations = targetScoresForRoom(full.score.capped).map((targetScore) => optimizeRoom(model, {
@@ -79,6 +90,24 @@ function buildRoomCandidates(model: EcoModel, input: HouseInput): RoomCandidate[
       }));
     })
     .filter((candidate) => candidate.optimization.score.capped > SCORE_EPSILON);
+}
+
+function capRoomCopiesByEfficiency(model: EcoModel, input: HouseInput, requestedMaxCopies: number) {
+  const minEfficiency = clampPercent(input.minXpEfficiencyPercent ?? 0) / 100;
+  if (minEfficiency <= 0) return requestedMaxCopies;
+  const rate = model.housingConfig?.roomCategoryDiminishingReturnRate ?? 0.5;
+  let allowed = 0;
+  for (let index = 0; index < requestedMaxCopies; index += 1) {
+    const multiplier = index === 0 ? 1 : rate ** index;
+    if (multiplier + SCORE_EPSILON < minEfficiency) break;
+    allowed += 1;
+  }
+  return allowed;
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
 }
 
 function reducedRoomOptimizations(model: EcoModel, input: HouseInput, full: RoomOptimization) {
@@ -558,4 +587,51 @@ function countPlanToResult(input: HouseInput, plan: CountPlan): HouseOptimizatio
     craftList: plan.craftList,
     warnings: plan.warnings,
   };
+}
+
+function getCachedHouseOptimization(model: EcoModel, input: HouseInput) {
+  const cache = houseOptimizationCacheByModel.get(model);
+  const key = houseOptimizationCacheKey(input);
+  const cached = cache?.get(key);
+  if (!cache || !cached) return null;
+  cache.delete(key);
+  cache.set(key, cached);
+  return cloneHouseOptimizationResult(cached);
+}
+
+function setCachedHouseOptimization(model: EcoModel, input: HouseInput, result: HouseOptimizationResult) {
+  const key = houseOptimizationCacheKey(input);
+  const cache = houseOptimizationCacheByModel.get(model) ?? new Map<string, HouseOptimizationResult>();
+  if (!houseOptimizationCacheByModel.has(model)) houseOptimizationCacheByModel.set(model, cache);
+  cache.set(key, cloneHouseOptimizationResult(result));
+  while (cache.size > RESULT_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest == null) break;
+    cache.delete(oldest);
+  }
+}
+
+function cloneHouseOptimizationResult(result: HouseOptimizationResult): HouseOptimizationResult {
+  return structuredClone(result);
+}
+
+function houseOptimizationCacheKey(input: HouseInput) {
+  return JSON.stringify({
+    constructionTier: input.constructionTier,
+    materialBudget: input.materialBudget,
+    height: input.height,
+    sameHeightForAllRooms: input.sameHeightForAllRooms,
+    maxCopiesPerRoomType: input.maxCopiesPerRoomType,
+    selectedSkills: [...input.selectedSkills].sort(),
+    ownedItems: [...input.ownedItems.entries()].filter(([, quantity]) => quantity > 0).sort(([a], [b]) => a.localeCompare(b)),
+    disabledItems: [...input.disabledItems].sort(),
+    availability: input.availability,
+    minXpEfficiencyPercent: input.minXpEfficiencyPercent ?? null,
+    allowElectricPower: input.allowElectricPower ?? null,
+    allowMechanicalPower: input.allowMechanicalPower ?? null,
+    allowFuel: input.allowFuel ?? null,
+    allowWater: input.allowWater ?? null,
+    allowChimney: input.allowChimney ?? null,
+    disabledFuelTags: [...(input.disabledFuelTags ?? new Set<string>())].sort(),
+  });
 }

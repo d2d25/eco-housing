@@ -5,6 +5,7 @@ import type { AppConfig } from "./storage";
 import { toEcoData } from "./workerModelData";
 
 const DEBOUNCE_MS = 300;
+const RESULT_CACHE_LIMIT = 50;
 
 export type HouseOptimizationWorkerState =
   | { status: "loading"; optimization: null; error: null }
@@ -19,6 +20,7 @@ export function useHouseOptimizationWorker(args: {
   ownedItems: Map<ItemClass, number>;
 }): HouseOptimizationWorkerState {
   const workerRef = useRef<Worker | null>(null);
+  const resultCacheRef = useRef<Map<string, HouseOptimizationResult>>(new Map());
   const [state, setState] = useState<HouseOptimizationWorkerState>({ status: "loading", optimization: null, error: null });
   const modelData = useMemo(() => toEcoData(args.model), [args.model]);
   const input = useMemo<HouseInput>(() => ({
@@ -57,6 +59,17 @@ export function useHouseOptimizationWorker(args: {
   ]);
 
   useEffect(() => {
+    const cacheKey = houseWorkerCacheKey(input);
+    const cached = resultCacheRef.current.get(cacheKey);
+    if (cached) {
+      resultCacheRef.current.delete(cacheKey);
+      resultCacheRef.current.set(cacheKey, cached);
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      setState({ status: "ready", optimization: cloneHouseOptimization(cached), error: null });
+      return;
+    }
+
     setState({ status: "loading", optimization: null, error: null });
     const timer = window.setTimeout(() => {
       workerRef.current?.terminate();
@@ -64,8 +77,12 @@ export function useHouseOptimizationWorker(args: {
       workerRef.current = worker;
       worker.onmessage = (event: MessageEvent<HouseWorkerResponse>) => {
         if (workerRef.current !== worker) return;
-        if (event.data.ok) setState({ status: "ready", optimization: event.data.optimization, error: null });
-        else setState({ status: "error", optimization: null, error: event.data.error });
+        if (event.data.ok) {
+          setCachedHouseResult(resultCacheRef.current, cacheKey, event.data.optimization);
+          setState({ status: "ready", optimization: event.data.optimization, error: null });
+        } else {
+          setState({ status: "error", optimization: null, error: event.data.error });
+        }
       };
       worker.onerror = (event) => {
         if (workerRef.current !== worker) return;
@@ -82,4 +99,38 @@ export function useHouseOptimizationWorker(args: {
   }, [modelData, input]);
 
   return state;
+}
+
+function setCachedHouseResult(cache: Map<string, HouseOptimizationResult>, key: string, result: HouseOptimizationResult) {
+  cache.set(key, cloneHouseOptimization(result));
+  while (cache.size > RESULT_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest == null) break;
+    cache.delete(oldest);
+  }
+}
+
+function cloneHouseOptimization(result: HouseOptimizationResult) {
+  return structuredClone(result);
+}
+
+function houseWorkerCacheKey(input: HouseInput) {
+  return JSON.stringify({
+    constructionTier: input.constructionTier,
+    materialBudget: input.materialBudget,
+    height: input.height,
+    sameHeightForAllRooms: input.sameHeightForAllRooms,
+    maxCopiesPerRoomType: input.maxCopiesPerRoomType,
+    selectedSkills: [...input.selectedSkills].sort(),
+    ownedItems: [...input.ownedItems.entries()].filter(([, quantity]) => quantity > 0).sort(([a], [b]) => a.localeCompare(b)),
+    disabledItems: [...input.disabledItems].sort(),
+    availability: input.availability,
+    minXpEfficiencyPercent: input.minXpEfficiencyPercent ?? null,
+    allowElectricPower: input.allowElectricPower ?? null,
+    allowMechanicalPower: input.allowMechanicalPower ?? null,
+    allowFuel: input.allowFuel ?? null,
+    allowWater: input.allowWater ?? null,
+    allowChimney: input.allowChimney ?? null,
+    disabledFuelTags: [...(input.disabledFuelTags ?? new Set<string>())].sort(),
+  });
 }

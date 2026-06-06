@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   height: 3,
   roomSizeMode: "auto",
   materialBudget: 120,
-  minXpEfficiencyPercent: 20,
+  minXpEfficiencyPercent: 50,
   allowElectricPower: true,
   allowMechanicalPower: true,
   allowFuel: true,
