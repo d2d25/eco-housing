@@ -8,12 +8,19 @@ export interface CraftResolver {
   resolve(itemClass: ItemClass, mode?: "full" | "ingredient" | "station"): CraftResolution;
 }
 
+export interface CraftAvailabilityIndex {
+  resolver: CraftResolver;
+  byItemClass: Map<ItemClass, CraftResolution>;
+  resolve(itemClass: ItemClass, mode?: "full" | "ingredient" | "station"): CraftResolution;
+  isCraftable(itemClass: ItemClass): boolean;
+}
+
 export function createCraftResolver(model: EcoModel, selectedSkills: Set<SkillClass>): CraftResolver {
   const cache = new Map<string, CraftResolution>();
 
   function resolve(itemClass: ItemClass, mode: "full" | "ingredient" | "station" = "full", stack: string[] = []): CraftResolution {
     if (stack.includes(itemClass)) return { craftable: true, missing: [], required: [] };
-    const cacheKey = `${mode}:${itemClass}:${[...selectedSkills].sort().join(",")}`;
+    const cacheKey = `${mode}:${itemClass}`;
     const cached = cache.get(cacheKey);
     if (cached) return cached;
 
@@ -94,6 +101,33 @@ export function createCraftResolver(model: EcoModel, selectedSkills: Set<SkillCl
   }
 
   return { resolve };
+}
+
+export function createCraftAvailabilityIndex(model: EcoModel, selectedSkills: Set<SkillClass>): CraftAvailabilityIndex {
+  const resolver = createCraftResolver(model, selectedSkills);
+  const byItemClass = new Map<ItemClass, CraftResolution>();
+
+  for (const item of model.housingItems) {
+    byItemClass.set(item.itemClass, resolver.resolve(item.itemClass));
+  }
+
+  return {
+    resolver,
+    byItemClass,
+    resolve(itemClass, mode = "full") {
+      if (mode === "full") {
+        const cached = byItemClass.get(itemClass);
+        if (cached) return cached;
+        const resolved = resolver.resolve(itemClass);
+        byItemClass.set(itemClass, resolved);
+        return resolved;
+      }
+      return resolver.resolve(itemClass, mode);
+    },
+    isCraftable(itemClass) {
+      return this.resolve(itemClass).craftable;
+    },
+  };
 }
 
 export function mergeResolution(resolution: CraftResolution, missing: CraftRequirement[], required: CraftRequirement[]) {

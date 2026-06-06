@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { buildModel } from "../domain/model";
 import { effectiveFloorArea, floorAreaWhenOnSurface, hasSurfaceTag, isSmallEstimatedPlaceable, surfaceUnitsRequired } from "../domain/placementRules";
-import { roomOptimization } from "../domain/roomOptimizer";
+import { BrowserBranchAndBoundSolver, optimizeRoom, roomOptimization } from "../domain/roomOptimizer";
 import { applyTierCap, compatibleCategoriesForRoom, diminishingMultiplier, roomUsesMaterialTier, supportCapPercentForCategory } from "../domain/roomScoring";
 import type { EcoData, EcoModel, HousingItem, RoomInput } from "../domain/types";
 
@@ -139,6 +139,15 @@ describe("Eco housing reference calculations", () => {
 });
 
 describe("Room optimizer behavior", () => {
+  test("exposes the stable optimizeRoom and solver interfaces", () => {
+    const input = baseInput({ roomType: "Bathroom", tier: 1, width: 4, depth: 4, height: 3 });
+    const direct = optimizeRoom(model, input);
+    const solver = new BrowserBranchAndBoundSolver().solve(model, input);
+
+    expect(solver.score.capped).toBeCloseTo(direct.score.capped, 3);
+    expect(solver.entries.map((entry) => entry.item.itemClass)).toEqual(direct.entries.map((entry) => entry.item.itemClass));
+  });
+
   test("optimizes a selected room with support categories", () => {
     const result = roomOptimization(model, baseInput({ roomType: "Bathroom", tier: 1, width: 4, depth: 4, height: 3 }));
     expect(result.groups.map((group) => group.category)).toEqual(["Bathroom", "Seating", "Decoration", "Lighting"]);
@@ -353,6 +362,21 @@ describe("Room optimizer quality", () => {
 
     expect(names(result)).toEqual(["Zulu Equivalent"]);
     expect(result.entries[0]?.fromOwned).toBe(true);
+  });
+
+  test("supports a future target-score objective for house planning", () => {
+    const synthetic = syntheticModel([
+      fixtureItem("Primary 6", "Primary6Item", "Bathroom", 6, "Primary6", { floorArea: 1 }),
+      fixtureItem("Primary 3", "Primary3Item", "Bathroom", 3, "Primary3", { floorArea: 1 }),
+      fixtureItem("Primary 2", "Primary2Item", "Bathroom", 2, "Primary2", { floorArea: 1 }),
+    ], { roomTiers: [{ tier: 5, softCap: 100, hardCap: 200, diminishingReturnPercent: 0.65 }] });
+
+    const result = roomOptimization(synthetic, syntheticInput({
+      objective: { kind: "reachTargetScore", targetScore: 5 },
+    }));
+
+    expect(result.score.capped).toBe(5);
+    expect(names(result)).toEqual(["Primary 3", "Primary 2"]);
   });
 });
 

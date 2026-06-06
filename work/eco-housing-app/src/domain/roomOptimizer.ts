@@ -1,8 +1,8 @@
-import { createCraftResolver } from "./craftResolver";
+import { createCraftAvailabilityIndex } from "./craftResolver";
 import { byName } from "./model";
 import { canPlaceOnFloorWhenNoSurface, effectiveFloorArea, floorAreaWhenOnSurface, itemFitsRoomDimensions, itemFootprint, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
 import { compatibleCategoriesForRoom, diminishingMultiplier, estimateEntriesScore, scoreSummary, supportCapPercentForCategory } from "./roomScoring";
-import type { EcoModel, HousingItem, ItemClass, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization } from "./types";
+import type { EcoModel, HousingItem, ItemClass, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization, RoomOptimizationRequest, RoomOptimizationResult, RoomSolver } from "./types";
 
 const MIN_NON_OWNED_CREDITED_SCORE = 0.1;
 const MAX_ENTRIES_PER_CATEGORY = 8;
@@ -20,7 +20,7 @@ interface OptimizationContext {
   model: EcoModel;
   input: RoomInput;
   objective: OptimizationObjective;
-  craftResolver: ReturnType<typeof createCraftResolver>;
+  craftAvailability: ReturnType<typeof createCraftAvailabilityIndex>;
   orderedCategories: string[];
   generalSupportCategories: string[];
 }
@@ -33,6 +33,7 @@ interface CategoryPlan {
   itemCounts: Map<ItemClass, number>;
   ownedCount: number;
   stableKey: string;
+  startIndex: number;
 }
 
 interface RoomPlan {
@@ -40,9 +41,22 @@ interface RoomPlan {
   constraints: RoomConstraints;
   ownedCount: number;
   stableKey: string;
+  cappedScore: number;
+  afterSupportCaps: number;
+  entryCount: number;
+}
+
+export class BrowserBranchAndBoundSolver implements RoomSolver {
+  solve(model: EcoModel, request: RoomOptimizationRequest): RoomOptimizationResult {
+    return optimizeRoom(model, request);
+  }
 }
 
 export function roomOptimization(model: EcoModel, input: RoomInput): RoomOptimization {
+  return optimizeRoom(model, input);
+}
+
+export function optimizeRoom(model: EcoModel, input: RoomOptimizationRequest): RoomOptimizationResult {
   if (input.roomType !== "Outdoor" && input.sizeMode === "materials") return optimizeWithinMaterialBudget(model, input);
   const context = buildOptimizationContext(model, input);
   const best = selectBestRoomPlan(context);
@@ -129,7 +143,7 @@ export function buildOptimizationContext(model: EcoModel, input: RoomInput): Opt
     model,
     input,
     objective: input.objective ?? DEFAULT_OBJECTIVE,
-    craftResolver: createCraftResolver(model, input.selectedSkills),
+    craftAvailability: createCraftAvailabilityIndex(model, input.selectedSkills),
     orderedCategories,
     generalSupportCategories: general,
   };
@@ -142,7 +156,7 @@ export function optimizerGroups(model: EcoModel, input: RoomInput, constraints?:
 }
 
 export function selectBestRoomPlan(context: OptimizationContext): RoomPlan {
-  let roomPlans: RoomPlan[] = [{ groups: [], constraints: createInitialConstraints(context.input), ownedCount: 0, stableKey: "" }];
+  let roomPlans: RoomPlan[] = [emptyRoomPlan(context.input)];
 
   for (const category of context.orderedCategories) {
     const isPrimary = category === context.input.roomType;
@@ -163,11 +177,16 @@ export function selectBestRoomPlan(context: OptimizationContext): RoomPlan {
           supportCap,
           supportCapPercent,
         };
+        const groups = [...plan.groups, group];
+        const summary = scoreSummary(context.model, groups, context.input.tier, context.input.roomType);
         nextPlans.push({
-          groups: [...plan.groups, group],
+          groups,
           constraints: categoryPlan.constraints,
           ownedCount: plan.ownedCount + categoryPlan.ownedCount,
           stableKey: [plan.stableKey, categoryPlan.stableKey].filter(Boolean).join("|"),
+          cappedScore: summary.capped,
+          afterSupportCaps: summary.afterSupportCaps,
+          entryCount: plan.entryCount + categoryPlan.entries.length,
         });
       }
     }
@@ -175,7 +194,7 @@ export function selectBestRoomPlan(context: OptimizationContext): RoomPlan {
     roomPlans = keepBestRoomPlans(context, nextPlans);
   }
 
-  return keepBestRoomPlans(context, roomPlans)[0] ?? { groups: [], constraints: createInitialConstraints(context.input), ownedCount: 0, stableKey: "" };
+  return keepBestRoomPlans(context, roomPlans)[0] ?? emptyRoomPlan(context.input);
 }
 
 export function generateCategoryPlans(
@@ -194,8 +213,9 @@ export function generateCategoryPlans(
       const remaining = maxScore == null ? Infinity : maxScore - plan.score;
       if (remaining <= 0.01) continue;
 
-      for (const item of items) {
-        const candidate = tryAddItemToCategoryPlan(context, plan, item, remaining);
+      for (let itemIndex = plan.startIndex; itemIndex < items.length; itemIndex += 1) {
+        const item = items[itemIndex]!;
+        const candidate = tryAddItemToCategoryPlan(context, plan, item, remaining, itemIndex);
         if (candidate) next.push(candidate);
       }
     }
@@ -214,7 +234,7 @@ function candidateItemsForCategory(context: OptimizationContext, category: strin
     .filter((item) => !item.variantOfItemClass)
     .filter((item) => availabilityFilter(item, context))
     .filter((item) => !context.input.disabledItems.has(item.itemClass))
-    .sort((a, b) => b.value - a.value || byName(a, b));
+    .sort(compareCandidateItems);
   return dedupeEquivalentCandidates(context, items).slice(0, CANDIDATE_LIMIT);
 }
 
@@ -227,20 +247,29 @@ function dedupeEquivalentCandidates(context: OptimizationContext, items: Housing
       bestByEquivalence.set(key, item);
     }
   }
-  return [...bestByEquivalence.values()].sort((a, b) => b.value - a.value || byName(a, b));
+  return [...bestByEquivalence.values()].sort(compareCandidateItems);
+}
+
+function compareCandidateItems(a: HousingItem, b: HousingItem) {
+  return (
+    surfaceUnitsProvided(b) - surfaceUnitsProvided(a) ||
+    surfaceUnitsRequired(a) - surfaceUnitsRequired(b) ||
+    b.value - a.value ||
+    byName(a, b)
+  );
 }
 
 function compareEquivalentRepresentative(context: OptimizationContext, a: HousingItem, b: HousingItem) {
-  const ownedA = ownedRemaining(a.itemClass, context.input, createInitialConstraints(context.input)) > 0;
-  const ownedB = ownedRemaining(b.itemClass, context.input, createInitialConstraints(context.input)) > 0;
-  const craftableA = context.craftResolver.resolve(a.itemClass).craftable;
-  const craftableB = context.craftResolver.resolve(b.itemClass).craftable;
+  const ownedA = (context.input.ownedItems.get(a.itemClass) ?? 0) > 0;
+  const ownedB = (context.input.ownedItems.get(b.itemClass) ?? 0) > 0;
+  const craftableA = context.craftAvailability.isCraftable(a.itemClass);
+  const craftableB = context.craftAvailability.isCraftable(b.itemClass);
   return Number(ownedB) - Number(ownedA) || Number(craftableB) - Number(craftableA) || byName(a, b);
 }
 
 function availabilityFilter(item: HousingItem, context: OptimizationContext) {
-  const craftable = context.craftResolver.resolve(item.itemClass).craftable;
-  if (context.input.availability === "available") return craftable || ownedRemaining(item.itemClass, context.input, createInitialConstraints(context.input)) > 0;
+  const craftable = context.craftAvailability.isCraftable(item.itemClass);
+  if (context.input.availability === "available") return craftable || (context.input.ownedItems.get(item.itemClass) ?? 0) > 0;
   if (context.input.availability === "locked") return !craftable;
   return true;
 }
@@ -250,6 +279,7 @@ function tryAddItemToCategoryPlan(
   plan: CategoryPlan,
   item: HousingItem,
   remainingScore: number,
+  itemIndex: number,
 ): CategoryPlan | null {
   if (!passesOperationalRequirements(context.input, item)) return null;
   if (!itemFitsRoomDimensions(item, plan.constraints)) return null;
@@ -315,7 +345,8 @@ function tryAddItemToCategoryPlan(
     typeCounts,
     itemCounts,
     ownedCount: plan.ownedCount + (fromOwned ? 1 : 0),
-    stableKey: entries.map((selected) => selected.item.friendlyName).sort().join(","),
+    stableKey: [plan.stableKey, item.friendlyName].filter(Boolean).join(","),
+    startIndex: itemIndex,
   };
 }
 
@@ -375,13 +406,32 @@ function keepBestCategoryPlans(context: OptimizationContext, plans: CategoryPlan
 }
 
 function compareRoomPlans(context: OptimizationContext, a: RoomPlan, b: RoomPlan) {
-  if (context.objective.kind === "maximizeUsefulRoomScore") {
-    const scoreA = scoreSummary(context.model, a.groups, context.input.tier, context.input.roomType);
-    const scoreB = scoreSummary(context.model, b.groups, context.input.tier, context.input.roomType);
+  if (context.objective.kind === "reachTargetScore") {
+    const target = Math.max(0, context.objective.targetScore ?? context.objective.minScore ?? 0);
+    const aMeets = a.cappedScore >= target;
+    const bMeets = b.cappedScore >= target;
+    if (aMeets !== bMeets) return Number(bMeets) - Number(aMeets);
+    if (aMeets && bMeets) {
+      return (
+        a.cappedScore - b.cappedScore ||
+        a.entryCount - b.entryCount ||
+        b.ownedCount - a.ownedCount ||
+        a.stableKey.localeCompare(b.stableKey)
+      );
+    }
+  }
+
+  if (context.objective.kind === "maximizeScorePerObject") {
+    const ratioA = a.cappedScore / Math.max(1, a.entryCount);
+    const ratioB = b.cappedScore / Math.max(1, b.entryCount);
+    return ratioB - ratioA || b.cappedScore - a.cappedScore || a.entryCount - b.entryCount || a.stableKey.localeCompare(b.stableKey);
+  }
+
+  if (context.objective.kind === "maximizeUsefulRoomScore" || context.objective.kind === "maximizeScorePerCost" || context.objective.kind === "reachTargetScore") {
     return (
-      scoreB.capped - scoreA.capped ||
-      scoreB.afterSupportCaps - scoreA.afterSupportCaps ||
-      a.groups.flatMap((group) => group.entries).length - b.groups.flatMap((group) => group.entries).length ||
+      b.cappedScore - a.cappedScore ||
+      b.afterSupportCaps - a.afterSupportCaps ||
+      a.entryCount - b.entryCount ||
       b.ownedCount - a.ownedCount ||
       a.stableKey.localeCompare(b.stableKey)
     );
@@ -550,6 +600,19 @@ function emptyCategoryPlan(constraints: RoomConstraints): CategoryPlan {
     itemCounts: new Map(),
     ownedCount: 0,
     stableKey: "",
+    startIndex: 0,
+  };
+}
+
+function emptyRoomPlan(input: RoomInput): RoomPlan {
+  return {
+    groups: [],
+    constraints: createInitialConstraints(input),
+    ownedCount: 0,
+    stableKey: "",
+    cappedScore: 0,
+    afterSupportCaps: 0,
+    entryCount: 0,
   };
 }
 

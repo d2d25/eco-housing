@@ -243,10 +243,19 @@ export interface RoomInput {
   objective?: OptimizationObjective;
 }
 
-export type OptimizationObjectiveKind = "maximizeUsefulRoomScore";
+export type OptimizationObjectiveKind = "maximizeUsefulRoomScore" | "reachTargetScore" | "maximizeScorePerObject" | "maximizeScorePerCost";
 
 export interface OptimizationObjective {
   kind: OptimizationObjectiveKind;
+  targetScore?: number;
+  minScore?: number;
+}
+
+export type RoomOptimizationRequest = RoomInput;
+export type RoomOptimizationResult = RoomOptimization;
+
+export interface RoomSolver {
+  solve(model: EcoModel, request: RoomOptimizationRequest): RoomOptimizationResult;
 }
 
 export interface OptimizationEntry {

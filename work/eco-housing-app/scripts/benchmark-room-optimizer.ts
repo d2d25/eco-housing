@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { buildModel } from "../src/domain/model";
 import { roomOptimization } from "../src/domain/roomOptimizer";
@@ -12,6 +13,8 @@ const model = buildModel(data);
 
 const WARMUP_RUNS = 1;
 const MEASURE_RUNS = 3;
+const jsonOutput = process.argv.includes("--json");
+const commit = gitCommit();
 
 const allSkills = new Set<SkillClass>(model.skills.map((skill) => skill.className));
 const carpenterMason = new Set<SkillClass>(
@@ -38,10 +41,29 @@ const scenarios = [
   ["Outdoor all skills", baseInput({ roomType: "Outdoor", tier: 5, sizeMode: "auto", selectedSkills: allSkills })],
 ] as const;
 
-console.log("Room optimizer benchmark");
-console.log(`Data: ${path.relative(repoRoot, dataPath)}`);
-console.log(`Warmup: ${WARMUP_RUNS}, runs: ${MEASURE_RUNS}`);
-console.log("");
+const benchmark = {
+  commit,
+  data: path.relative(repoRoot, dataPath),
+  warmupRuns: WARMUP_RUNS,
+  measureRuns: MEASURE_RUNS,
+  scenarios: [] as Array<{
+    name: string;
+    avgMs: number;
+    p95Ms: number;
+    minMs: number;
+    maxMs: number;
+    score: number;
+    items: number;
+  }>,
+};
+
+if (!jsonOutput) {
+  console.log("Room optimizer benchmark");
+  console.log(`Commit: ${commit}`);
+  console.log(`Data: ${path.relative(repoRoot, dataPath)}`);
+  console.log(`Warmup: ${WARMUP_RUNS}, runs: ${MEASURE_RUNS}`);
+  console.log("");
+}
 
 for (const [name, input] of scenarios) {
   for (let i = 0; i < WARMUP_RUNS; i += 1) roomOptimization(model, input);
@@ -58,8 +80,21 @@ for (const [name, input] of scenarios) {
   }
 
   const stats = summarize(samples);
-  console.log(`${name.padEnd(48)} avg ${formatMs(stats.avg).padStart(8)}  p95 ${formatMs(stats.p95).padStart(8)}  min ${formatMs(stats.min).padStart(8)}  max ${formatMs(stats.max).padStart(8)}  score ${score.toFixed(1).padStart(5)}  items ${String(entries).padStart(2)}`);
+  benchmark.scenarios.push({
+    name,
+    avgMs: stats.avg,
+    p95Ms: stats.p95,
+    minMs: stats.min,
+    maxMs: stats.max,
+    score,
+    items: entries,
+  });
+  if (!jsonOutput) {
+    console.log(`${name.padEnd(48)} avg ${formatMs(stats.avg).padStart(8)}  p95 ${formatMs(stats.p95).padStart(8)}  min ${formatMs(stats.min).padStart(8)}  max ${formatMs(stats.max).padStart(8)}  score ${score.toFixed(1).padStart(5)}  items ${String(entries).padStart(2)}`);
+  }
 }
+
+if (jsonOutput) console.log(JSON.stringify(benchmark, null, 2));
 
 function baseInput(partial: Partial<RoomInput>): RoomInput {
   return {
@@ -95,4 +130,13 @@ function summarize(samples: number[]) {
 
 function formatMs(value: number) {
   return `${value.toFixed(1)}ms`;
+}
+
+function gitCommit() {
+  try {
+    const safeRepoRoot = repoRoot.replaceAll("\\", "/");
+    return execFileSync("git", ["-c", `safe.directory=${safeRepoRoot}`, "rev-parse", "--short", "HEAD"], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "unknown";
+  }
 }
