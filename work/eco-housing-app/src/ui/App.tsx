@@ -332,7 +332,7 @@ function HousePage(props: {
           <section className="house-section">
             <h3>{t("recommendedRooms")}</h3>
             <div className="house-room-grid">
-              {result.rooms.map((room) => <HouseRoomCard key={room.roomType} t={t} language={language} model={model} room={room} />)}
+              {result.rooms.map((room) => <HouseRoomCard key={room.roomType} t={t} language={language} model={model} room={room} selectedSkills={selectedSkills} />)}
             </div>
           </section>
           <section className="house-side-grid">
@@ -370,7 +370,7 @@ function HouseSummary({ t, status, result }: { t: Translator; status: "loading" 
   );
 }
 
-function HouseRoomCard({ t, language, model, room }: { t: Translator; language: Language; model: EcoModel; room: HouseOptimizationResult["rooms"][number] }) {
+function HouseRoomCard({ t, language, model, room, selectedSkills }: { t: Translator; language: Language; model: EcoModel; room: HouseOptimizationResult["rooms"][number]; selectedSkills: Set<SkillClass> }) {
   const size = room.optimization.resolvedSize;
   const summaries = summarizeEntries(room.optimization.entries).slice(0, 6);
   return (
@@ -386,9 +386,92 @@ function HouseRoomCard({ t, language, model, room }: { t: Translator; language: 
         {room.cappedByRatio && <span>{t("ratioCapped")} <strong>{room.ratioCap?.toFixed(1)}</strong></span>}
       </div>
       <div className="house-room-items">
-        {summaries.map((summary) => <span key={summary.item.itemClass}><ItemIcon item={summary.item} />{displayItemName(summary.item, language)} x{summary.quantityPerRoom}</span>)}
+        {summaries.map((summary) => <HouseRoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} selectedSkills={selectedSkills} />)}
       </div>
     </article>
+  );
+}
+
+function HouseRoomItem({ t, language, model, summary, selectedSkills }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; selectedSkills: Set<SkillClass> }) {
+  const [alternativesOpen, setAlternativesOpen] = useState(false);
+  const item = summary.item;
+  const variants = variantAlternatives(model, item);
+  const equivalentChoices = equivalentChoiceGroups(model, item, selectedSkills);
+  const hasAlternatives = variants.length > 0 || equivalentChoices.length > 0;
+  return (
+    <>
+      <span className="house-room-item">
+        <span className="house-room-item-main">
+          <ItemIcon item={item} />
+          <span>{displayItemName(item, language)}</span>
+          <strong>x{summary.quantityPerRoom}</strong>
+        </span>
+        {hasAlternatives && (
+          <button className="house-alt-button" type="button" onClick={() => setAlternativesOpen(true)}>
+            {t("alternatives")}
+          </button>
+        )}
+      </span>
+      {alternativesOpen && (
+        <HouseAlternativesModal
+          t={t}
+          language={language}
+          item={item}
+          variants={variants}
+          equivalentChoices={equivalentChoices}
+          onClose={() => setAlternativesOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function HouseAlternativesModal({
+  t,
+  language,
+  item,
+  variants,
+  equivalentChoices,
+  onClose,
+}: {
+  t: Translator;
+  language: Language;
+  item: HousingItem;
+  variants: HousingItem[];
+  equivalentChoices: ReturnType<typeof equivalentChoiceGroups>;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={`${displayItemName(item, language)} - ${t("alternatives")}`} onClose={onClose}>
+      <div className="house-alternatives-modal">
+        {equivalentChoices.length > 0 && (
+          <section>
+            <h3>{t("equivalentOptions")}</h3>
+            <div className="house-alternative-list">
+              {equivalentChoices.map((choice) => (
+                <div className="house-alternative-row" key={choice.item.itemClass}>
+                  <ItemName language={language} item={choice.item} />
+                  {choice.skillNames.length > 0 && <small>{choice.skillNames.join(", ")}</small>}
+                  {choice.variants.length > 1 && <VariantDetails t={t} language={language} variants={choice.variants.filter((variant) => variant.itemClass !== choice.item.itemClass)} />}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {variants.length > 0 && (
+          <section>
+            <h3>{t("variants")}</h3>
+            <div className="house-alternative-list">
+              {variants.map((variant) => (
+                <div className="house-alternative-row" key={variant.itemClass}>
+                  <ItemName language={language} item={variant} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </Modal>
   );
 }
 
