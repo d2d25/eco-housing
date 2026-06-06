@@ -17,6 +17,12 @@ describe("room worker serialization", () => {
       disabledItems: new Set(["ChandelierItem"]),
       availability: "available",
       minXpEfficiencyPercent: 20,
+      allowElectricPower: false,
+      allowMechanicalPower: true,
+      allowFuel: true,
+      allowWater: false,
+      allowChimney: true,
+      disabledFuelTags: new Set(["Torch"]),
     };
 
     const serialized = serializeRoomInput(input);
@@ -25,6 +31,9 @@ describe("room worker serialization", () => {
     expect(serialized.ownedItems).toEqual([["StumpLatrineItem", 2], ["TorchStandItem", 1]]);
     expect(serialized.disabledItems).toEqual(["ChandelierItem"]);
     expect(serialized.minXpEfficiencyPercent).toBe(20);
+    expect(serialized.allowElectricPower).toBe(false);
+    expect(serialized.allowWater).toBe(false);
+    expect(serialized.disabledFuelTags).toEqual(["Torch"]);
 
     const rebuilt = deserializeRoomInput(serialized);
 
@@ -39,5 +48,8 @@ describe("room worker serialization", () => {
     expect([...rebuilt.ownedItems.entries()]).toEqual([["StumpLatrineItem", 2], ["TorchStandItem", 1]]);
     expect([...rebuilt.disabledItems]).toEqual(["ChandelierItem"]);
     expect(rebuilt.minXpEfficiencyPercent).toBe(20);
+    expect(rebuilt.allowElectricPower).toBe(false);
+    expect(rebuilt.allowWater).toBe(false);
+    expect([...(rebuilt.disabledFuelTags ?? [])]).toEqual(["Torch"]);
   });
 });

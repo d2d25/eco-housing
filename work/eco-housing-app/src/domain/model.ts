@@ -123,5 +123,6 @@ function mergeWorldObjectRequirements(
     requiredRoomMaterialTier: next.requiredRoomMaterialTier ?? current.requiredRoomMaterialTier,
     requiresOccupancy: Boolean(current.requiresOccupancy || next.requiresOccupancy),
     requiresRoomRequirements: Boolean(current.requiresRoomRequirements || next.requiresRoomRequirements),
+    operationalRequirements: next.operationalRequirements ?? current.operationalRequirements ?? null,
   };
 }

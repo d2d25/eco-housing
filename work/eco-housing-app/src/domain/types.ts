@@ -130,6 +130,31 @@ export interface WorldObjectRequirement {
   requiresOccupancy?: boolean;
   requiresRoomRequirements?: boolean;
   attachmentDirections?: string[];
+  operationalRequirements?: OperationalRequirements | null;
+}
+
+export type PowerType = "ElectricPower" | "MechanicalPower" | "HeatPower" | string;
+
+export interface PowerRequirement {
+  type: PowerType;
+  watts: number | null;
+}
+
+export interface OperationalRequirements {
+  powerConsumption?: PowerRequirement | null;
+  powerProduction?: PowerRequirement | null;
+  fuel?: {
+    tags?: string[];
+    watts?: number | null;
+  } | null;
+  water?: {
+    input?: boolean;
+    sewageOutput?: boolean;
+  } | null;
+  chimney?: {
+    smogOutput?: boolean;
+  } | null;
+  generator?: PowerRequirement | null;
 }
 
 export interface Occupancy {
@@ -209,6 +234,12 @@ export interface RoomInput {
   disabledItems: Set<ItemClass>;
   availability: "available" | "all" | "locked";
   minXpEfficiencyPercent?: number;
+  allowElectricPower?: boolean;
+  allowMechanicalPower?: boolean;
+  allowFuel?: boolean;
+  allowWater?: boolean;
+  allowChimney?: boolean;
+  disabledFuelTags?: Set<string>;
   objective?: OptimizationObjective;
 }
 

@@ -14,6 +14,12 @@ export interface AppConfig {
   roomSizeMode: "auto" | "manual" | "materials";
   materialBudget: number;
   minXpEfficiencyPercent: number;
+  allowElectricPower: boolean;
+  allowMechanicalPower: boolean;
+  allowFuel: boolean;
+  allowWater: boolean;
+  allowChimney: boolean;
+  disabledFuelTags: string[];
   devMode: boolean;
   selectedSkills: SkillClass[];
   disabledItems: ItemClass[];
@@ -34,6 +40,12 @@ export const DEFAULT_CONFIG: AppConfig = {
   roomSizeMode: "auto",
   materialBudget: 120,
   minXpEfficiencyPercent: 20,
+  allowElectricPower: true,
+  allowMechanicalPower: true,
+  allowFuel: true,
+  allowWater: true,
+  allowChimney: true,
+  disabledFuelTags: [],
   devMode: false,
   selectedSkills: [],
   disabledItems: [],
@@ -68,6 +80,12 @@ export function loadConfig(): AppConfig {
       roomSizeMode: parsed.roomSizeMode === "auto" || parsed.roomSizeMode === "manual" || parsed.roomSizeMode === "materials" ? parsed.roomSizeMode : DEFAULT_CONFIG.roomSizeMode,
       materialBudget: Number.isFinite(Number(parsed.materialBudget)) ? Number(parsed.materialBudget) : DEFAULT_CONFIG.materialBudget,
       minXpEfficiencyPercent: normalizePercent(parsed.minXpEfficiencyPercent, DEFAULT_CONFIG.minXpEfficiencyPercent),
+      allowElectricPower: parsed.allowElectricPower ?? DEFAULT_CONFIG.allowElectricPower,
+      allowMechanicalPower: parsed.allowMechanicalPower ?? DEFAULT_CONFIG.allowMechanicalPower,
+      allowFuel: parsed.allowFuel ?? DEFAULT_CONFIG.allowFuel,
+      allowWater: parsed.allowWater ?? DEFAULT_CONFIG.allowWater,
+      allowChimney: parsed.allowChimney ?? DEFAULT_CONFIG.allowChimney,
+      disabledFuelTags: Array.isArray(parsed.disabledFuelTags) ? parsed.disabledFuelTags.filter((value: unknown): value is string => typeof value === "string") : DEFAULT_CONFIG.disabledFuelTags,
       devMode: Boolean(parsed.devMode),
       objectSort: parsed.objectSort === "name" ? DEFAULT_CONFIG.objectSort : parsed.objectSort ?? DEFAULT_CONFIG.objectSort,
     };

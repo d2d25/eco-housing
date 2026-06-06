@@ -230,6 +230,7 @@ function RoomPage(props: {
   const resultDepth = resolvedSize?.depth ?? config.depth;
   const resultHeight = resolvedSize?.height ?? config.height;
   const roomVolume = resolvedSize?.volume ?? config.width * config.depth * config.height;
+  const fuelTags = availableFuelTags(model);
 
   return (
     <section className="room-page">
@@ -325,6 +326,33 @@ function RoomPage(props: {
               />
             </span>
           </section>
+          <section className="operational-options">
+            <strong>{t("operationalOptions")}</strong>
+            <div className="toggle-grid">
+              <label><input type="checkbox" checked={config.allowElectricPower} onChange={(event) => update({ allowElectricPower: event.target.checked })} />{t("allowElectricPower")}</label>
+              <label><input type="checkbox" checked={config.allowMechanicalPower} onChange={(event) => update({ allowMechanicalPower: event.target.checked })} />{t("allowMechanicalPower")}</label>
+              <label><input type="checkbox" checked={config.allowFuel} onChange={(event) => update({ allowFuel: event.target.checked })} />{t("allowFuel")}</label>
+              <label><input type="checkbox" checked={config.allowWater} onChange={(event) => update({ allowWater: event.target.checked })} />{t("allowWater")}</label>
+              <label><input type="checkbox" checked={config.allowChimney} onChange={(event) => update({ allowChimney: event.target.checked })} />{t("allowChimney")}</label>
+            </div>
+            {fuelTags.length > 0 && config.allowFuel && (
+              <div className="fuel-tag-options">
+                <span>{t("fuelTags")}</span>
+                <div>
+                  {fuelTags.map((tag) => (
+                    <label key={tag}>
+                      <input
+                        type="checkbox"
+                        checked={!config.disabledFuelTags.includes(tag)}
+                        onChange={(event) => update({ disabledFuelTags: toggleListValue(config.disabledFuelTags, tag, !event.target.checked) })}
+                      />
+                      {tag}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         </section>
         <RoomSummaryPanel
           t={t}
@@ -402,6 +430,14 @@ function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set
       height: config.height,
       volume: config.width * config.depth * config.height,
       minXpEfficiencyPercent: config.minXpEfficiencyPercent,
+      allowedOperationalRequirements: {
+        electricPower: config.allowElectricPower,
+        mechanicalPower: config.allowMechanicalPower,
+        fuel: config.allowFuel,
+        water: config.allowWater,
+        chimney: config.allowChimney,
+        disabledFuelTags: config.disabledFuelTags,
+      },
       resolvedSize: optimization.resolvedSize,
     },
     selectedSkills: [...selectedSkills].sort().map((skillClass) => ({
@@ -437,6 +473,7 @@ function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set
         footprint: formatFootprint(entry.item),
         requiredRoomVolume: entry.item.requirements?.requiredRoomVolume ?? null,
         requiredRoomMaterialTier: entry.item.requirements?.requiredRoomMaterialTier ?? null,
+        operationalRequirements: entry.item.requirements?.operationalRequirements ?? null,
         placement: surfacePlacementKind(entry.item) || null,
         placedOnFloor: entry.placedOnFloor,
       })),
@@ -503,10 +540,23 @@ function parseImportedIssueJson(data: unknown, model: EcoModel, t: Translator): 
       roomSizeMode: readRoomSizeMode(roomInput.sizeMode),
       materialBudget: Number(roomInput.materialBudget ?? DEFAULT_CONFIG.materialBudget),
       minXpEfficiencyPercent: clampPercent(Number(roomInput.minXpEfficiencyPercent ?? DEFAULT_CONFIG.minXpEfficiencyPercent)),
+      ...readOperationalConfig(roomInput),
       selectedSkills,
       disabledItems,
     },
     ownedItems,
+  };
+}
+
+function readOperationalConfig(roomInput: Record<string, unknown>): Partial<AppConfig> {
+  const operational = isRecord(roomInput.allowedOperationalRequirements) ? roomInput.allowedOperationalRequirements : {};
+  return {
+    allowElectricPower: operational.electricPower == null ? DEFAULT_CONFIG.allowElectricPower : Boolean(operational.electricPower),
+    allowMechanicalPower: operational.mechanicalPower == null ? DEFAULT_CONFIG.allowMechanicalPower : Boolean(operational.mechanicalPower),
+    allowFuel: operational.fuel == null ? DEFAULT_CONFIG.allowFuel : Boolean(operational.fuel),
+    allowWater: operational.water == null ? DEFAULT_CONFIG.allowWater : Boolean(operational.water),
+    allowChimney: operational.chimney == null ? DEFAULT_CONFIG.allowChimney : Boolean(operational.chimney),
+    disabledFuelTags: Array.isArray(operational.disabledFuelTags) ? operational.disabledFuelTags.filter((value): value is string => typeof value === "string") : DEFAULT_CONFIG.disabledFuelTags,
   };
 }
 
@@ -538,6 +588,62 @@ function readClassArray(value: unknown, field: string, t: Translator) {
   return readObjectArray(value, field, t).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`, t));
 }
 
+function availableFuelTags(model: EcoModel) {
+  return [...new Set(model.housingItems.flatMap((item) => item.requirements?.operationalRequirements?.fuel?.tags ?? []))].sort();
+}
+
+function summarizeOperationalNeeds(entries: RoomOptimization["entries"], model: EcoModel) {
+  let electricWatts = 0;
+  let mechanicalWatts = 0;
+  let heatWatts = 0;
+  let water = false;
+  let chimney = false;
+  const fuelTags = new Set<string>();
+
+  for (const entry of entries) {
+    const requirements = entry.item.requirements?.operationalRequirements;
+    const consumption = requirements?.powerConsumption;
+    if (consumption?.type === "ElectricPower") electricWatts += consumption.watts ?? 0;
+    if (consumption?.type === "MechanicalPower") mechanicalWatts += consumption.watts ?? 0;
+    if (consumption?.type === "HeatPower") heatWatts += consumption.watts ?? 0;
+    if (requirements?.water) water = true;
+    if (requirements?.chimney) chimney = true;
+    for (const tag of requirements?.fuel?.tags ?? []) fuelTags.add(tag);
+  }
+
+  const mechanicalGenerators = model.housingItems
+    .filter((item) => item.requirements?.operationalRequirements?.generator?.type === "MechanicalPower")
+    .map((item) => ({ name: item.friendlyName, watts: item.requirements?.operationalRequirements?.generator?.watts ?? 0 }))
+    .filter((generator) => generator.watts > 0)
+    .sort((a, b) => b.watts - a.watts || a.name.localeCompare(b.name));
+
+  return {
+    electricWatts,
+    mechanicalWatts,
+    heatWatts,
+    water,
+    chimney,
+    fuelTags: [...fuelTags].sort(),
+    mechanicalGenerators,
+    hasNeeds: electricWatts > 0 || mechanicalWatts > 0 || heatWatts > 0 || water || chimney,
+  };
+}
+
+function formatWatts(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  return `${Number.isInteger(value) ? value : value.toFixed(1).replace(/\.0$/, "")}w`;
+}
+
+function generatorHelpText(t: Translator, watts: number, generators: { name: string; watts: number }[]) {
+  if (!generators.length) return t("generatorHelp");
+  return `${t("generatorHelp")} ${generators.slice(0, 4).map((generator) => `${generator.name} x${Math.ceil(watts / generator.watts)} (${formatWatts(generator.watts)})`).join(", ")}`;
+}
+
+function toggleListValue(values: string[], value: string, disabled: boolean) {
+  if (disabled) return values.includes(value) ? values : [...values, value].sort();
+  return values.filter((entry) => entry !== value);
+}
+
 function RoomOptimizationResults({
   t,
   language,
@@ -567,9 +673,22 @@ function RoomOptimizationResults({
   const surface = surfaceSummary(optimization.entries);
   const objectFloor = estimateObjectFloor(optimization.entries);
   const requiredVolume = optimization.entries.reduce((total, entry) => total + (entry.item.requirements?.requiredRoomVolume ?? 0), 0);
+  const operational = summarizeOperationalNeeds(optimization.entries, model);
 
   return (
     <>
+      {operational.hasNeeds && (
+        <section className="operational-summary">
+          <strong>{t("operationalNeeds")}</strong>
+          <div>
+            {operational.electricWatts > 0 && <span>{formatWatts(operational.electricWatts)} {t("electricNeed")}</span>}
+            {operational.mechanicalWatts > 0 && <span>{formatWatts(operational.mechanicalWatts)} {t("mechanicalNeed")} <HelpButton help={generatorHelpText(t, operational.mechanicalWatts, operational.mechanicalGenerators)} /></span>}
+            {operational.heatWatts > 0 && <span>{formatWatts(operational.heatWatts)} {t("fuelNeed")}{operational.fuelTags.length ? `: ${operational.fuelTags.join(", ")}` : ""}</span>}
+            {operational.water && <span>{t("waterNeed")}</span>}
+            {operational.chimney && <span>{t("chimneyNeed")}</span>}
+          </div>
+        </section>
+      )}
       {devMode && (
         <section className="debug-room-panel">
           <div className="score-card debug-tier"><span>{score.tier ? t("activeTier") : t("materialTierNotUsed")}</span>{score.tier ? <><strong>T{score.tier.tier}</strong><small>{t("soft")} {score.tier.softCap} | {t("hard")} {score.tier.hardCap} | {t("return")} {Math.round(score.tier.diminishingReturnPercent * 100)}%</small></> : <><strong>-</strong><small>{t("outdoorNoMaterialCap")}</small></>}</div>

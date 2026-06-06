@@ -13,6 +13,12 @@ export interface SerializedRoomInput {
   disabledItems: ItemClass[];
   availability: RoomInput["availability"];
   minXpEfficiencyPercent?: number;
+  allowElectricPower?: boolean;
+  allowMechanicalPower?: boolean;
+  allowFuel?: boolean;
+  allowWater?: boolean;
+  allowChimney?: boolean;
+  disabledFuelTags?: string[];
 }
 
 export interface RoomWorkerRequest {
@@ -38,6 +44,12 @@ export function serializeRoomInput(input: RoomInput): SerializedRoomInput {
     disabledItems: [...input.disabledItems],
     availability: input.availability,
     minXpEfficiencyPercent: input.minXpEfficiencyPercent,
+    allowElectricPower: input.allowElectricPower,
+    allowMechanicalPower: input.allowMechanicalPower,
+    allowFuel: input.allowFuel,
+    allowWater: input.allowWater,
+    allowChimney: input.allowChimney,
+    disabledFuelTags: [...(input.disabledFuelTags ?? [])],
   };
 }
 
@@ -55,5 +67,11 @@ export function deserializeRoomInput(input: SerializedRoomInput): RoomInput {
     disabledItems: new Set(input.disabledItems),
     availability: input.availability,
     minXpEfficiencyPercent: input.minXpEfficiencyPercent,
+    allowElectricPower: input.allowElectricPower,
+    allowMechanicalPower: input.allowMechanicalPower,
+    allowFuel: input.allowFuel,
+    allowWater: input.allowWater,
+    allowChimney: input.allowChimney,
+    disabledFuelTags: new Set(input.disabledFuelTags ?? []),
   };
 }

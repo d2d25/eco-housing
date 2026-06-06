@@ -302,6 +302,22 @@ describe("Room optimizer quality", () => {
     expect(names(strict)).toEqual(["Primary"]);
   });
 
+  test("filters operational requirements from room input", () => {
+    const synthetic = syntheticModel([
+      fixtureItem("Primary", "PrimaryItem", "Bathroom", 5, "Primary", { floorArea: 1 }),
+      fixtureItem("Electric Support", "ElectricSupportItem", "Decoration", 4, "ElectricSupport", { floorArea: 1, operational: { powerConsumption: { type: "ElectricPower", watts: 60 } } }),
+      fixtureItem("Torch Support", "TorchSupportItem", "Decoration", 4, "TorchSupport", { floorArea: 1, operational: { fuel: { tags: ["Torch"], watts: 0.5 }, powerConsumption: { type: "HeatPower", watts: 0.5 } } }),
+    ], { decorationSupportPercent: 2 });
+
+    const noElectric = roomOptimization(synthetic, syntheticInput({ allowElectricPower: false }));
+    const noTorch = roomOptimization(synthetic, syntheticInput({ disabledFuelTags: new Set(["Torch"]) }));
+
+    expect(names(noElectric)).not.toContain("Electric Support");
+    expect(names(noElectric)).toContain("Torch Support");
+    expect(names(noTorch)).toContain("Electric Support");
+    expect(names(noTorch)).not.toContain("Torch Support");
+  });
+
   test("optimizes the capped useful score instead of only filling raw category value", () => {
     const synthetic = syntheticModel([
       fixtureItem("Efficient Primary", "EfficientPrimaryItem", "Bathroom", 10, "Primary", { floorArea: 1 }),
@@ -366,7 +382,7 @@ function fixtureItem(
   category: string,
   value: number,
   typeForRoomLimit: string,
-  options: { volume?: number; floorArea?: number; surfaceProvided?: boolean; canBeOnSurface?: boolean; petals?: boolean; equivalenceKey?: string } = {},
+  options: { volume?: number; floorArea?: number; surfaceProvided?: boolean; canBeOnSurface?: boolean; petals?: boolean; equivalenceKey?: string; operational?: NonNullable<HousingItem["requirements"]>["operationalRequirements"] } = {},
 ) {
   const worldObjectClass = options.petals ? null : `${itemClass.replace(/Item$/, "")}Object`;
   return {
@@ -403,6 +419,7 @@ function fixtureItem(
       className: worldObjectClass,
       tags: options.surfaceProvided ? ["SurfaceTags.HasTableSurface"] : [],
       requiredRoomVolume: options.volume ?? null,
+      operationalRequirements: options.operational ?? null,
     } : null,
     occupancy: worldObjectClass ? {
       worldObjectClass,

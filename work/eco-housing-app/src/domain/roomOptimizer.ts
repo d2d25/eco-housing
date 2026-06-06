@@ -251,6 +251,7 @@ function tryAddItemToCategoryPlan(
   item: HousingItem,
   remainingScore: number,
 ): CategoryPlan | null {
+  if (!passesOperationalRequirements(context.input, item)) return null;
   if (!itemFitsRoomDimensions(item, plan.constraints)) return null;
 
   const type = item.typeForRoomLimit ?? item.itemClass;
@@ -316,6 +317,22 @@ function tryAddItemToCategoryPlan(
     ownedCount: plan.ownedCount + (fromOwned ? 1 : 0),
     stableKey: entries.map((selected) => selected.item.friendlyName).sort().join(","),
   };
+}
+
+function passesOperationalRequirements(input: RoomInput, item: HousingItem) {
+  const requirements = item.requirements?.operationalRequirements;
+  if (!requirements) return true;
+  const consumption = requirements.powerConsumption;
+  if (consumption?.type === "ElectricPower" && input.allowElectricPower === false) return false;
+  if (consumption?.type === "MechanicalPower" && input.allowMechanicalPower === false) return false;
+  if (requirements.fuel && input.allowFuel === false) return false;
+  if (requirements.water && input.allowWater === false) return false;
+  if (requirements.chimney && input.allowChimney === false) return false;
+
+  const disabledFuelTags = input.disabledFuelTags ?? new Set<string>();
+  const fuelTags = requirements.fuel?.tags ?? [];
+  if (fuelTags.some((tag) => disabledFuelTags.has(tag))) return false;
+  return true;
 }
 
 function passesXpEfficiencyThreshold(input: RoomInput, item: HousingItem, creditedScore: number) {

@@ -510,7 +510,84 @@ function parseWorldObjectRequirements(entry) {
     requiredRoomMaterialTier: parseNumber(entry.attributes.match(/RequireRoomMaterialTier\s*\(\s*([0-9.]+[fFdDmM]?)/m)?.[1]),
     requiresOccupancy: /RequireComponent\s*\(\s*typeof\(OccupancyRequirementComponent\)\s*\)/.test(entry.attributes),
     requiresRoomRequirements: /RequireComponent\s*\(\s*typeof\(RoomRequirementsComponent\)\s*\)/.test(entry.attributes),
+    operationalRequirements: parseOperationalRequirements(entry),
   };
+}
+
+function parseOperationalRequirements(entry) {
+  const text = `${entry.attributes}\n${entry.body}`;
+  const components = [...text.matchAll(/RequireComponent\s*\(\s*typeof\(([A-Za-z0-9_]+)\)\s*\)/g)].map((match) => match[1]);
+  const powerConsumption = parsePowerTooltip(entry.body, "Consumes");
+  const powerProduction = parsePowerTooltip(entry.body, "Produces");
+  const fuelTags = parseFuelTags(entry.body);
+  const liquidSetups = [...entry.body.matchAll(/Liquid(?:Converter|Consumer|Producer)Component>\(\)\.Setup\s*\(([^;]+?)\);/g)].map((match) => match[1]);
+  const liquidText = liquidSetups.join("\n");
+  const water = /WaterItem/.test(liquidText);
+  const sewage = /SewageItem/.test(liquidText);
+  const smog = /SmogItem/.test(liquidText);
+  const chimney = components.includes("ChimneyComponent") || /ChimneyOut/.test(text) || smog;
+  const hasFuel = components.includes("FuelSupplyComponent") || components.includes("FuelConsumptionComponent") || powerConsumption?.type === "HeatPower";
+
+  const result = {};
+  if (powerConsumption) result.powerConsumption = powerConsumption;
+  if (powerProduction) result.powerProduction = powerProduction;
+  if (hasFuel) result.fuel = { tags: fuelTags, watts: powerConsumption?.type === "HeatPower" ? powerConsumption.watts : null };
+  if (water || sewage) result.water = { input: water, sewageOutput: sewage };
+  if (chimney) result.chimney = { smogOutput: smog };
+  if (powerProduction) result.generator = { type: powerProduction.type, watts: powerProduction.watts };
+
+  return Object.keys(result).length ? result : null;
+}
+
+function parsePowerTooltip(body, verb) {
+  const regex = new RegExp(`${verb}:\\s*\\{Text\\.Info\\(([^)]+)\\)\\}w of \\{new ([A-Za-z]+Power)\\(\\)\\.Name\\} power`, "m");
+  const match = body.match(regex);
+  if (!match) return null;
+  return {
+    type: match[2],
+    watts: parseNumber(match[1]),
+  };
+}
+
+function parseFuelTags(body) {
+  const variableTags = body.match(/fuelTagList\s*=\s*new\[\]\s*\{([^}]*)\}/m)?.[1];
+  const inlineTags = body.match(/FuelSupplyComponent>\(\)\.Initialize\s*\([^,]+,\s*new\[\]\s*\{([^}]*)\}/m)?.[1];
+  const raw = variableTags ?? inlineTags ?? "";
+  return [...raw.matchAll(/"((?:\\"|[^"])*)"/g)].map((match) => match[1].replace(/\\"/g, "\"")).sort();
+}
+
+function mergeOperationalRequirements(worldRequirements, itemRequirements) {
+  if (!worldRequirements && !itemRequirements) return null;
+  const fuelTags = [
+    ...(worldRequirements?.fuel?.tags ?? []),
+    ...(itemRequirements?.fuel?.tags ?? []),
+  ];
+  const merged = {
+    ...(worldRequirements ?? {}),
+    ...(itemRequirements ?? {}),
+  };
+
+  if (worldRequirements?.fuel || itemRequirements?.fuel) {
+    merged.fuel = {
+      ...(worldRequirements?.fuel ?? {}),
+      ...(itemRequirements?.fuel ?? {}),
+      tags: [...new Set(fuelTags)].sort(),
+      watts: worldRequirements?.fuel?.watts ?? itemRequirements?.fuel?.watts ?? null,
+    };
+  }
+  if (worldRequirements?.water || itemRequirements?.water) {
+    merged.water = {
+      input: Boolean(worldRequirements?.water?.input || itemRequirements?.water?.input),
+      sewageOutput: Boolean(worldRequirements?.water?.sewageOutput || itemRequirements?.water?.sewageOutput),
+    };
+  }
+  if (worldRequirements?.chimney || itemRequirements?.chimney) {
+    merged.chimney = {
+      smogOutput: Boolean(worldRequirements?.chimney?.smogOutput || itemRequirements?.chimney?.smogOutput),
+    };
+  }
+
+  return Object.keys(merged).length ? merged : null;
 }
 
 function summarizeOccupancy(objectClass, coords, portTypes) {
@@ -622,11 +699,16 @@ function parseFile(filePath, source, modsRoot) {
       .map((entry) => entry.name)
   );
   const itemAttachmentDirectionsByWorldObject = new Map();
+  const itemOperationalRequirementsByWorldObject = new Map();
   for (const entry of itemClasses) {
     const worldObjectClass = entry.base.match(/WorldObjectItem<([A-Za-z0-9_]+)>/)?.[1] ?? null;
     const attachmentDirections = parseAttachmentDirections(entry.body);
     if (worldObjectClass && attachmentDirections.length) {
       itemAttachmentDirectionsByWorldObject.set(worldObjectClass, attachmentDirections);
+    }
+    const operationalRequirements = parseOperationalRequirements(entry);
+    if (worldObjectClass && operationalRequirements) {
+      itemOperationalRequirementsByWorldObject.set(worldObjectClass, operationalRequirements);
     }
   }
 
@@ -703,9 +785,11 @@ function parseFile(filePath, source, modsRoot) {
   const worldObjects = worldObjectClasses.map((entry) => {
     const requirements = parseWorldObjectRequirements(entry);
     const itemAttachmentDirections = itemAttachmentDirectionsByWorldObject.get(entry.name) ?? [];
+    const itemOperationalRequirements = itemOperationalRequirementsByWorldObject.get(entry.name) ?? null;
     return {
       ...requirements,
       attachmentDirections: requirements.attachmentDirections.length ? requirements.attachmentDirections : itemAttachmentDirections,
+      operationalRequirements: mergeOperationalRequirements(requirements.operationalRequirements, itemOperationalRequirements),
     };
   });
 
