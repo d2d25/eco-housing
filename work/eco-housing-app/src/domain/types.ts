@@ -196,6 +196,9 @@ export interface HousingItem extends HousingValue {
 
 export interface EcoModel extends EcoData {
   housingItems: HousingItem[];
+  housingItemsByCategory: Map<string, HousingItem[]>;
+  baseHousingItemsByCategory: Map<string, HousingItem[]>;
+  optimizationProfileByItemClass: Map<ItemClass, ItemOptimizationProfile>;
   roomCategoryByName: Map<string, RoomCategory>;
   supportForAnyRoom: string[];
   skillsByClass: Map<SkillClass, Skill>;
@@ -208,6 +211,31 @@ export interface EcoModel extends EcoData {
   equivalentItemsByBase: Map<ItemClass, HousingItem[]>;
   equivalenceGroupByKey: Map<string, HousingEquivalenceGroup>;
   equivalenceGroupByItemClass: Map<ItemClass, HousingEquivalenceGroup>;
+}
+
+export interface ItemOptimizationProfile {
+  itemClass: ItemClass;
+  category: string;
+  width: number;
+  depth: number;
+  height: number;
+  floorArea: number;
+  estimatedFootprint: boolean;
+  requiredRoomVolume: number;
+  effectiveFloorArea: number;
+  floorAreaWhenOnSurface: number;
+  surfaceProvided: number;
+  surfaceRequired: number;
+  isRug: boolean;
+  isPetalSurfaceOnly: boolean;
+  isWallOrCeilingAttached: boolean;
+  canPlaceOnFloorWhenNoSurface: boolean;
+  needsElectricPower: boolean;
+  needsMechanicalPower: boolean;
+  needsFuel: boolean;
+  fuelTags: string[];
+  needsWater: boolean;
+  needsChimney: boolean;
 }
 
 export interface CraftRequirement {

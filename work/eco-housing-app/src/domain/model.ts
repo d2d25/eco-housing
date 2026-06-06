@@ -1,4 +1,5 @@
-import type { EcoData, EcoModel, HousingItem, RoomCategory } from "./types";
+import { attachmentDirections, effectiveFloorArea, floorAreaWhenOnSurface, hasSurfaceTag, isPetalSurfaceOnly, itemFootprint, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
+import type { EcoData, EcoModel, HousingItem, ItemOptimizationProfile, RoomCategory } from "./types";
 
 const EXCLUDED_ITEM_CLASSES = new Set(["EckoStatueItem"]);
 
@@ -62,6 +63,9 @@ export function buildModel(data: EcoData): EcoModel {
         craftableWithoutSkill: recipes.length > 0 && directSkillClasses.length === 0,
       };
     });
+  const housingItemsByCategory = groupHousingItemsByCategory(housingItems);
+  const baseHousingItemsByCategory = groupHousingItemsByCategory(housingItems.filter((item) => !item.variantOfItemClass));
+  const optimizationProfileByItemClass = new Map(housingItems.map((item) => [item.itemClass, buildOptimizationProfile(item)]));
   const housingByClass = new Map(housingItems.map((item) => [item.itemClass, item]));
   const equivalenceGroupByKey = new Map((data.housingEquivalenceGroups ?? []).map((group) => [group.key, group]));
   const equivalenceGroupByItemClass = new Map<string, NonNullable<typeof data.housingEquivalenceGroups>[number]>();
@@ -89,6 +93,9 @@ export function buildModel(data: EcoData): EcoModel {
   return {
     ...data,
     housingItems,
+    housingItemsByCategory,
+    baseHousingItemsByCategory,
+    optimizationProfileByItemClass,
     skills: [...data.skills].sort((a, b) => (a.tier ?? 99) - (b.tier ?? 99) || byName(a, b)),
     roomCategories,
     roomCategoryByName: new Map(roomCategories.map((room) => [room.name, room])),
@@ -103,6 +110,47 @@ export function buildModel(data: EcoData): EcoModel {
     equivalentItemsByBase,
     equivalenceGroupByKey,
     equivalenceGroupByItemClass,
+  };
+}
+
+function groupHousingItemsByCategory(items: HousingItem[]) {
+  const byCategory = new Map<string, HousingItem[]>();
+  for (const item of items) {
+    const entries = byCategory.get(item.category) ?? [];
+    entries.push(item);
+    byCategory.set(item.category, entries);
+  }
+  for (const entries of byCategory.values()) entries.sort((a, b) => b.value - a.value || byName(a, b));
+  return byCategory;
+}
+
+function buildOptimizationProfile(item: HousingItem): ItemOptimizationProfile {
+  const footprint = itemFootprint(item);
+  const operational = item.requirements?.operationalRequirements;
+  const powerType = operational?.powerConsumption?.type;
+  return {
+    itemClass: item.itemClass,
+    category: item.category,
+    width: footprint.width || 0,
+    depth: footprint.depth || 0,
+    height: footprint.height || 0,
+    floorArea: footprint.floorArea || 0,
+    estimatedFootprint: Boolean(footprint.estimated),
+    requiredRoomVolume: item.requirements?.requiredRoomVolume ?? 0,
+    effectiveFloorArea: effectiveFloorArea(item),
+    floorAreaWhenOnSurface: floorAreaWhenOnSurface(item),
+    surfaceProvided: surfaceUnitsProvided(item),
+    surfaceRequired: surfaceUnitsRequired(item),
+    isRug: hasSurfaceTag(item, "Rug"),
+    isPetalSurfaceOnly: isPetalSurfaceOnly(item),
+    isWallOrCeilingAttached: attachmentDirections(item).some((direction) => direction !== "Down"),
+    canPlaceOnFloorWhenNoSurface: !isPetalSurfaceOnly(item),
+    needsElectricPower: powerType === "ElectricPower",
+    needsMechanicalPower: powerType === "MechanicalPower",
+    needsFuel: Boolean(operational?.fuel),
+    fuelTags: [...new Set(operational?.fuel?.tags ?? [])],
+    needsWater: Boolean(operational?.water),
+    needsChimney: Boolean(operational?.chimney),
   };
 }
 

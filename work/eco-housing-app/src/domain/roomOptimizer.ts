@@ -1,8 +1,8 @@
 import { createCraftAvailabilityIndex } from "./craftResolver";
 import { byName } from "./model";
-import { canPlaceOnFloorWhenNoSurface, effectiveFloorArea, floorAreaWhenOnSurface, itemFitsRoomDimensions, itemFootprint, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
+import { floorAreaWhenOnSurface, itemFootprint } from "./placementRules";
 import { compatibleCategoriesForRoom, diminishingMultiplier, estimateEntriesScore, scoreSummary, supportCapPercentForCategory } from "./roomScoring";
-import type { EcoModel, HousingItem, ItemClass, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization, RoomOptimizationRequest, RoomOptimizationResult, RoomSolver } from "./types";
+import type { EcoModel, HousingItem, ItemClass, ItemOptimizationProfile, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization, RoomOptimizationRequest, RoomOptimizationResult, RoomSolver } from "./types";
 
 const MIN_NON_OWNED_CREDITED_SCORE = 0.1;
 const MAX_ENTRIES_PER_CATEGORY = 8;
@@ -15,6 +15,15 @@ const AUTO_MAX_HEIGHT = 8;
 const MATERIAL_MAX_WIDTH = 16;
 const MATERIAL_MAX_DEPTH = 16;
 const MATERIAL_MAX_HEIGHT = 6;
+const RESULT_CACHE_LIMIT = 50;
+const optimizationCacheByModel = new WeakMap<EcoModel, Map<string, RoomOptimizationResult>>();
+
+export function clearRoomOptimizationCache(model?: EcoModel) {
+  if (model) {
+    optimizationCacheByModel.delete(model);
+    return;
+  }
+}
 
 interface OptimizationContext {
   model: EcoModel;
@@ -23,6 +32,7 @@ interface OptimizationContext {
   craftAvailability: ReturnType<typeof createCraftAvailabilityIndex>;
   orderedCategories: string[];
   generalSupportCategories: string[];
+  duplicateScoreCache: Map<ItemClass, number[]>;
 }
 
 interface CategoryPlan {
@@ -57,14 +67,16 @@ export function roomOptimization(model: EcoModel, input: RoomInput): RoomOptimiz
 }
 
 export function optimizeRoom(model: EcoModel, input: RoomOptimizationRequest): RoomOptimizationResult {
+  const cached = getCachedOptimization(model, input);
+  if (cached) return cached;
   if (input.roomType !== "Outdoor" && input.sizeMode === "materials") return optimizeWithinMaterialBudget(model, input);
   const context = buildOptimizationContext(model, input);
   const best = selectBestRoomPlan(context);
-  const surfaceNormalized = normalizeSurfacePlacement(best.groups, best.constraints);
+  const surfaceNormalized = normalizeSurfacePlacement(model, best.groups, best.constraints);
   const entries = surfaceNormalized.groups.flatMap((group) => group.entries);
-  const resolvedSize = resolveRoomSize(input, entries);
+  const resolvedSize = resolveRoomSize(model, input, entries);
   const constraints = resolvedSize ? { ...surfaceNormalized.constraints, maxWidth: resolvedSize.width, maxDepth: resolvedSize.depth, maxHeight: resolvedSize.height, maxFloor: resolvedSize.floorArea, maxVolume: resolvedSize.volume } : surfaceNormalized.constraints;
-  return {
+  const result = {
     roomName: input.roomType,
     groups: surfaceNormalized.groups,
     score: scoreSummary(model, surfaceNormalized.groups, input.tier, input.roomType),
@@ -72,20 +84,22 @@ export function optimizeRoom(model: EcoModel, input: RoomOptimizationRequest): R
     constraints,
     resolvedSize,
   };
+  setCachedOptimization(model, input, result);
+  return result;
 }
 
-function normalizeSurfacePlacement(groups: OptimizationGroup[], constraints: RoomConstraints) {
+function normalizeSurfacePlacement(model: EcoModel, groups: OptimizationGroup[], constraints: RoomConstraints) {
   const indexedEntries = groups.flatMap((group, groupIndex) => group.entries.map((entry, entryIndex) => ({ groupIndex, entryIndex, entry })));
-  const surfaceCapacity = indexedEntries.reduce((total, { entry }) => total + surfaceUnitsProvided(entry.item), 0);
+  const surfaceCapacity = indexedEntries.reduce((total, { entry }) => total + profileFor(model, entry.item).surfaceProvided, 0);
   const assignedToSurface = new Set<string>();
   let usedSurface = 0;
 
   const consumers = indexedEntries
-    .filter(({ entry }) => surfaceUnitsRequired(entry.item) > 0)
-    .sort((a, b) => Number(canPlaceOnFloorWhenNoSurface(a.entry.item)) - Number(canPlaceOnFloorWhenNoSurface(b.entry.item)));
+    .filter(({ entry }) => profileFor(model, entry.item).surfaceRequired > 0)
+    .sort((a, b) => Number(profileFor(model, a.entry.item).canPlaceOnFloorWhenNoSurface) - Number(profileFor(model, b.entry.item).canPlaceOnFloorWhenNoSurface));
 
   for (const { groupIndex, entryIndex, entry } of consumers) {
-    const required = surfaceUnitsRequired(entry.item);
+    const required = profileFor(model, entry.item).surfaceRequired;
     if (usedSurface + required > surfaceCapacity) continue;
     assignedToSurface.add(`${groupIndex}:${entryIndex}`);
     usedSurface += required;
@@ -95,14 +109,15 @@ function normalizeSurfacePlacement(groups: OptimizationGroup[], constraints: Roo
   const normalizedGroups = groups.map((group, groupIndex) => ({
     ...group,
     entries: group.entries.map((entry, entryIndex) => {
-      const required = surfaceUnitsRequired(entry.item);
+      const profile = profileFor(model, entry.item);
+      const required = profile.surfaceRequired;
       const usesSurface = required > 0 && assignedToSurface.has(`${groupIndex}:${entryIndex}`);
-      const floorArea = usesSurface ? floorAreaWhenOnSurface(entry.item) : effectiveFloorArea(entry.item);
+      const floorArea = usesSurface ? profile.floorAreaWhenOnSurface : profile.effectiveFloorArea;
       usedFloor += floorArea;
       return {
         ...entry,
-        placedOnFloor: required > 0 && !usesSurface && canPlaceOnFloorWhenNoSurface(entry.item) || undefined,
-        extraFloorFromSurfaceOverflow: Math.max(0, floorArea - floorAreaWhenOnSurface(entry.item)) || undefined,
+        placedOnFloor: required > 0 && !usesSurface && profile.canPlaceOnFloorWhenNoSurface || undefined,
+        extraFloorFromSurfaceOverflow: Math.max(0, floorArea - profile.floorAreaWhenOnSurface) || undefined,
       };
     }),
   }));
@@ -146,6 +161,7 @@ export function buildOptimizationContext(model: EcoModel, input: RoomInput): Opt
     craftAvailability: createCraftAvailabilityIndex(model, input.selectedSkills),
     orderedCategories,
     generalSupportCategories: general,
+    duplicateScoreCache: new Map(),
   };
 }
 
@@ -212,6 +228,11 @@ export function generateCategoryPlans(
       storeBestCategoryPlan(completed, plan);
       const remaining = maxScore == null ? Infinity : maxScore - plan.score;
       if (remaining <= 0.01) continue;
+      if (maxScore == null && completed.size >= BEAM_WIDTH) {
+        const worstKeptScore = worstCategoryScore(completed);
+        const upperBound = plan.score + optimisticRemainingCategoryScore(context, items, plan.startIndex, MAX_ENTRIES_PER_CATEGORY - depth);
+        if (upperBound < worstKeptScore - 0.01) continue;
+      }
 
       for (let itemIndex = plan.startIndex; itemIndex < items.length; itemIndex += 1) {
         const item = items[itemIndex]!;
@@ -228,13 +249,27 @@ export function generateCategoryPlans(
   return keepBestCategoryPlans(context, [...completed.values()], maxScore);
 }
 
+function optimisticRemainingCategoryScore(context: OptimizationContext, items: HousingItem[], startIndex: number, remainingEntries: number) {
+  if (remainingEntries <= 0) return 0;
+  const scores: number[] = [];
+  for (let itemIndex = startIndex; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex]!;
+    scores.push(...cachedDuplicateScoreProfile(context, item).slice(0, remainingEntries));
+  }
+  return scores.sort((a, b) => b - a).slice(0, remainingEntries).reduce((total, score) => total + score, 0);
+}
+
+function worstCategoryScore(plans: Map<string, CategoryPlan>) {
+  let worst = Number.POSITIVE_INFINITY;
+  for (const plan of plans.values()) worst = Math.min(worst, plan.score);
+  return Number.isFinite(worst) ? worst : 0;
+}
+
 function candidateItemsForCategory(context: OptimizationContext, category: string) {
-  const items = context.model.housingItems
-    .filter((item) => item.category === category)
-    .filter((item) => !item.variantOfItemClass)
+  const items = (context.model.baseHousingItemsByCategory.get(category) ?? [])
     .filter((item) => availabilityFilter(item, context))
     .filter((item) => !context.input.disabledItems.has(item.itemClass))
-    .sort(compareCandidateItems);
+    .sort((a, b) => compareCandidateItems(context.model, a, b));
   return dedupeEquivalentCandidates(context, items).slice(0, CANDIDATE_LIMIT);
 }
 
@@ -247,13 +282,15 @@ function dedupeEquivalentCandidates(context: OptimizationContext, items: Housing
       bestByEquivalence.set(key, item);
     }
   }
-  return [...bestByEquivalence.values()].sort(compareCandidateItems);
+  return [...bestByEquivalence.values()].sort((a, b) => compareCandidateItems(context.model, a, b));
 }
 
-function compareCandidateItems(a: HousingItem, b: HousingItem) {
+function compareCandidateItems(model: EcoModel, a: HousingItem, b: HousingItem) {
+  const profileA = profileFor(model, a);
+  const profileB = profileFor(model, b);
   return (
-    surfaceUnitsProvided(b) - surfaceUnitsProvided(a) ||
-    surfaceUnitsRequired(a) - surfaceUnitsRequired(b) ||
+    profileB.surfaceProvided - profileA.surfaceProvided ||
+    profileA.surfaceRequired - profileB.surfaceRequired ||
     b.value - a.value ||
     byName(a, b)
   );
@@ -281,18 +318,18 @@ function tryAddItemToCategoryPlan(
   remainingScore: number,
   itemIndex: number,
 ): CategoryPlan | null {
-  if (!passesOperationalRequirements(context.input, item)) return null;
-  if (!itemFitsRoomDimensions(item, plan.constraints)) return null;
+  const profile = profileFor(context.model, item);
+  if (!passesOperationalRequirements(context.input, profile)) return null;
+  if (!profileFitsRoomDimensions(profile, plan.constraints)) return null;
 
   const type = item.typeForRoomLimit ?? item.itemClass;
   const propertyWide = item.diminishingMultiplierAcrossFullProperty != null;
   const roomTypeCount = plan.typeCounts.get(type) ?? 0;
   const propertyTypeCount = plan.constraints.propertyTypeCounts.get(type) ?? 0;
   const typeCount = propertyWide ? propertyTypeCount : roomTypeCount;
-  const multiplier = propertyWide
-    ? (item.diminishingMultiplierAcrossFullProperty ?? 1) ** typeCount
-    : diminishingMultiplier(item, typeCount);
-  const rawScore = item.value * multiplier;
+  const duplicateScore = scoreForDuplicate(context, item, typeCount);
+  const multiplier = duplicateScore.multiplier;
+  const rawScore = duplicateScore.rawScore;
   if (rawScore <= 0) return null;
 
   const creditedScore = Math.min(rawScore, remainingScore);
@@ -300,10 +337,10 @@ function tryAddItemToCategoryPlan(
   const ownedAvailable = ownedRemaining(item.itemClass, context.input, plan.constraints) > 0;
   if (!ownedAvailable && creditedScore < MIN_NON_OWNED_CREDITED_SCORE) return null;
 
-  const placement = placementForItem(item, plan.constraints);
+  const placement = placementForItem(profile, plan.constraints);
   if (!placement) return null;
 
-  const requiredVolume = item.requirements?.requiredRoomVolume ?? 0;
+  const requiredVolume = profile.requiredRoomVolume;
   if ((plan.constraints.usedRequiredVolume + requiredVolume) > plan.constraints.maxVolume) return null;
   if ((plan.constraints.usedFloor + placement.floorArea) > plan.constraints.maxFloor) return null;
 
@@ -311,7 +348,7 @@ function tryAddItemToCategoryPlan(
   const fromOwned = markOwnedUsed(item.itemClass, context.input, constraints);
   constraints.usedFloor += placement.floorArea;
   constraints.usedRequiredVolume += requiredVolume;
-  constraints.surfaceCapacity += surfaceUnitsProvided(item);
+  constraints.surfaceCapacity += profile.surfaceProvided;
   constraints.usedSurface += placement.surfaceUsed;
 
   if (propertyWide) constraints.propertyTypeCounts.set(type, typeCount + 1);
@@ -350,19 +387,15 @@ function tryAddItemToCategoryPlan(
   };
 }
 
-function passesOperationalRequirements(input: RoomInput, item: HousingItem) {
-  const requirements = item.requirements?.operationalRequirements;
-  if (!requirements) return true;
-  const consumption = requirements.powerConsumption;
-  if (consumption?.type === "ElectricPower" && input.allowElectricPower === false) return false;
-  if (consumption?.type === "MechanicalPower" && input.allowMechanicalPower === false) return false;
-  if (requirements.fuel && input.allowFuel === false) return false;
-  if (requirements.water && input.allowWater === false) return false;
-  if (requirements.chimney && input.allowChimney === false) return false;
+function passesOperationalRequirements(input: RoomInput, profile: ItemOptimizationProfile) {
+  if (profile.needsElectricPower && input.allowElectricPower === false) return false;
+  if (profile.needsMechanicalPower && input.allowMechanicalPower === false) return false;
+  if (profile.needsFuel && input.allowFuel === false) return false;
+  if (profile.needsWater && input.allowWater === false) return false;
+  if (profile.needsChimney && input.allowChimney === false) return false;
 
   const disabledFuelTags = input.disabledFuelTags ?? new Set<string>();
-  const fuelTags = requirements.fuel?.tags ?? [];
-  if (fuelTags.some((tag) => disabledFuelTags.has(tag))) return false;
+  if (profile.fuelTags.some((tag) => disabledFuelTags.has(tag))) return false;
   return true;
 }
 
@@ -377,24 +410,95 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
-function placementForItem(item: HousingItem, constraints: RoomConstraints) {
-  const requiredSurface = surfaceUnitsRequired(item);
+function scoreForDuplicate(context: OptimizationContext, item: HousingItem, countBefore: number) {
+  const scores = cachedDuplicateScoreProfile(context, item);
+  const cached = scores[countBefore];
+  if (cached != null) return { rawScore: cached, multiplier: item.value ? cached / item.value : 0 };
+  const multiplier = item.diminishingMultiplierAcrossFullProperty != null
+    ? (item.diminishingMultiplierAcrossFullProperty ?? 1) ** countBefore
+    : diminishingMultiplier(item, countBefore);
+  return { rawScore: item.value * multiplier, multiplier };
+}
+
+export function duplicateScoreProfile(item: HousingItem, maxCount = MAX_ENTRIES_PER_CATEGORY) {
+  const scores: number[] = [];
+  for (let countBefore = 0; countBefore < maxCount; countBefore += 1) {
+    const multiplier = item.diminishingMultiplierAcrossFullProperty != null
+      ? (item.diminishingMultiplierAcrossFullProperty ?? 1) ** countBefore
+      : diminishingMultiplier(item, countBefore);
+    scores.push(item.value * multiplier);
+  }
+  return scores;
+}
+
+function cachedDuplicateScoreProfile(context: OptimizationContext, item: HousingItem) {
+  const cached = context.duplicateScoreCache.get(item.itemClass);
+  if (cached) return cached;
+  const scores = duplicateScoreProfile(item);
+  context.duplicateScoreCache.set(item.itemClass, scores);
+  return scores;
+}
+
+function profileFor(model: EcoModel, item: HousingItem) {
+  return model.optimizationProfileByItemClass.get(item.itemClass) ?? fallbackProfile(item);
+}
+
+function fallbackProfile(item: HousingItem): ItemOptimizationProfile {
+  const footprint = itemFootprint(item);
+  return {
+    itemClass: item.itemClass,
+    category: item.category,
+    width: footprint.width || 0,
+    depth: footprint.depth || 0,
+    height: footprint.height || 0,
+    floorArea: footprint.floorArea || 0,
+    estimatedFootprint: Boolean(footprint.estimated),
+    requiredRoomVolume: item.requirements?.requiredRoomVolume ?? 0,
+    effectiveFloorArea: floorAreaWhenOnSurface(item),
+    floorAreaWhenOnSurface: floorAreaWhenOnSurface(item),
+    surfaceProvided: 0,
+    surfaceRequired: 0,
+    isRug: false,
+    isPetalSurfaceOnly: false,
+    isWallOrCeilingAttached: false,
+    canPlaceOnFloorWhenNoSurface: true,
+    needsElectricPower: false,
+    needsMechanicalPower: false,
+    needsFuel: false,
+    fuelTags: [],
+    needsWater: false,
+    needsChimney: false,
+  };
+}
+
+function profileFitsRoomDimensions(profile: ItemOptimizationProfile, constraints: Pick<RoomConstraints, "maxWidth" | "maxDepth" | "maxHeight">) {
+  if (profile.height > 0 && profile.height > constraints.maxHeight) return false;
+  if (profile.width > 0 && profile.depth > 0) {
+    const fitsNormal = profile.width <= constraints.maxWidth && profile.depth <= constraints.maxDepth;
+    const fitsRotated = profile.depth <= constraints.maxWidth && profile.width <= constraints.maxDepth;
+    if (!fitsNormal && !fitsRotated) return false;
+  }
+  return true;
+}
+
+function placementForItem(profile: ItemOptimizationProfile, constraints: RoomConstraints) {
+  const requiredSurface = profile.surfaceRequired;
   if (requiredSurface > 0) {
     const availableSurface = constraints.surfaceCapacity - constraints.usedSurface;
     if (availableSurface >= requiredSurface) {
-      return { floorArea: floorAreaWhenOnSurface(item), surfaceUsed: requiredSurface, placedOnFloor: false, extraFloorFromSurfaceOverflow: 0 };
+      return { floorArea: profile.floorAreaWhenOnSurface, surfaceUsed: requiredSurface, placedOnFloor: false, extraFloorFromSurfaceOverflow: 0 };
     }
-    if (!canPlaceOnFloorWhenNoSurface(item)) return null;
-    const floorArea = effectiveFloorArea(item);
+    if (!profile.canPlaceOnFloorWhenNoSurface) return null;
+    const floorArea = profile.effectiveFloorArea;
     return {
       floorArea,
       surfaceUsed: 0,
       placedOnFloor: true,
-      extraFloorFromSurfaceOverflow: Math.max(0, floorArea - floorAreaWhenOnSurface(item)),
+      extraFloorFromSurfaceOverflow: Math.max(0, floorArea - profile.floorAreaWhenOnSurface),
     };
   }
 
-  return { floorArea: floorAreaWhenOnSurface(item), surfaceUsed: 0, placedOnFloor: false, extraFloorFromSurfaceOverflow: 0 };
+  return { floorArea: profile.floorAreaWhenOnSurface, surfaceUsed: 0, placedOnFloor: false, extraFloorFromSurfaceOverflow: 0 };
 }
 
 function keepBestRoomPlans(context: OptimizationContext, plans: RoomPlan[]) {
@@ -510,7 +614,7 @@ function createInitialConstraints(input: RoomInput): RoomConstraints {
   };
 }
 
-function resolveRoomSize(input: RoomInput, entries: OptimizationEntry[]) {
+function resolveRoomSize(model: EcoModel, input: RoomInput, entries: OptimizationEntry[]) {
   if (input.roomType === "Outdoor") return null;
   if (input.sizeMode === "manual" || input.sizeMode === "materials") {
     return {
@@ -523,18 +627,18 @@ function resolveRoomSize(input: RoomInput, entries: OptimizationEntry[]) {
       mode: input.sizeMode ?? "manual",
     };
   }
-  return findMinimumRoomSize(entries, "auto");
+  return findMinimumRoomSize(model, entries, "auto");
 }
 
-function findMinimumRoomSize(entries: OptimizationEntry[], mode: "auto" | "materials") {
-  const requiredFloor = entries.reduce((total, entry) => total + floorAreaWhenOnSurface(entry.item) + (entry.extraFloorFromSurfaceOverflow ?? 0), 0);
-  const requiredVolume = entries.reduce((total, entry) => total + (entry.item.requirements?.requiredRoomVolume ?? 0), 0);
+function findMinimumRoomSize(model: EcoModel, entries: OptimizationEntry[], mode: "auto" | "materials") {
+  const requiredFloor = entries.reduce((total, entry) => total + profileFor(model, entry.item).floorAreaWhenOnSurface + (entry.extraFloorFromSurfaceOverflow ?? 0), 0);
+  const requiredVolume = entries.reduce((total, entry) => total + profileFor(model, entry.item).requiredRoomVolume, 0);
   const minDimensions = entries.reduce((limits, entry) => {
-    const footprint = itemFootprint(entry.item);
+    const profile = profileFor(model, entry.item);
     return {
-      width: Math.max(limits.width, footprint.width || 1),
-      depth: Math.max(limits.depth, footprint.depth || 1),
-      height: Math.max(limits.height, footprint.height || 2),
+      width: Math.max(limits.width, profile.width || 1),
+      depth: Math.max(limits.depth, profile.depth || 1),
+      height: Math.max(limits.height, profile.height || 2),
     };
   }, { width: 1, depth: 1, height: 2 });
 
@@ -545,7 +649,7 @@ function findMinimumRoomSize(entries: OptimizationEntry[], mode: "auto" | "mater
         const floorArea = width * depth;
         if (floorArea < requiredFloor) continue;
         if (floorArea * height < requiredVolume) continue;
-        if (!entries.every((entry) => itemFitsRoomDimensions(entry.item, { maxWidth: width, maxDepth: depth, maxHeight: height }))) continue;
+        if (!entries.every((entry) => profileFitsRoomDimensions(profileFor(model, entry.item), { maxWidth: width, maxDepth: depth, maxHeight: height }))) continue;
         const candidate = sizeCandidate(width, depth, height, mode);
         if (!best || compareRoomSizes(candidate, best) < 0) best = candidate;
       }
@@ -589,6 +693,56 @@ function materialBudgetSizeCandidate(budget: number) {
   return candidates
     .sort((a, b) => b.volume - a.volume || b.floorArea - a.floorArea || a.materialCount - b.materialCount || Math.abs(a.width - a.depth) - Math.abs(b.width - b.depth))
     .at(0) ?? null;
+}
+
+function getCachedOptimization(model: EcoModel, input: RoomOptimizationRequest) {
+  const cache = optimizationCacheByModel.get(model);
+  const key = optimizationCacheKey(input);
+  const cached = cache?.get(key);
+  if (!cached || !cache) return null;
+  cache.delete(key);
+  cache.set(key, cached);
+  return cloneOptimizationResult(cached);
+}
+
+function setCachedOptimization(model: EcoModel, input: RoomOptimizationRequest, result: RoomOptimizationResult) {
+  const key = optimizationCacheKey(input);
+  const cache = optimizationCacheByModel.get(model) ?? new Map<string, RoomOptimizationResult>();
+  if (!optimizationCacheByModel.has(model)) optimizationCacheByModel.set(model, cache);
+  cache.set(key, cloneOptimizationResult(result));
+  while (cache.size > RESULT_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest == null) break;
+    cache.delete(oldest);
+  }
+}
+
+function cloneOptimizationResult(result: RoomOptimizationResult): RoomOptimizationResult {
+  return structuredClone(result);
+}
+
+function optimizationCacheKey(input: RoomOptimizationRequest) {
+  return JSON.stringify({
+    roomType: input.roomType,
+    tier: input.tier,
+    width: input.width,
+    depth: input.depth,
+    height: input.height,
+    sizeMode: input.sizeMode,
+    materialBudget: input.materialBudget ?? null,
+    selectedSkills: [...input.selectedSkills].sort(),
+    ownedItems: [...input.ownedItems.entries()].filter(([, quantity]) => quantity > 0).sort(([a], [b]) => a.localeCompare(b)),
+    disabledItems: [...input.disabledItems].sort(),
+    availability: input.availability,
+    minXpEfficiencyPercent: input.minXpEfficiencyPercent ?? null,
+    allowElectricPower: input.allowElectricPower ?? null,
+    allowMechanicalPower: input.allowMechanicalPower ?? null,
+    allowFuel: input.allowFuel ?? null,
+    allowWater: input.allowWater ?? null,
+    allowChimney: input.allowChimney ?? null,
+    disabledFuelTags: [...(input.disabledFuelTags ?? new Set<string>())].sort(),
+    objective: input.objective ?? DEFAULT_OBJECTIVE,
+  });
 }
 
 function emptyCategoryPlan(constraints: RoomConstraints): CategoryPlan {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { buildModel } from "../src/domain/model";
-import { roomOptimization } from "../src/domain/roomOptimizer";
+import { clearRoomOptimizationCache, roomOptimization } from "../src/domain/roomOptimizer";
 import type { EcoData, ItemClass, RoomInput, SkillClass } from "../src/domain/types";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -52,6 +52,8 @@ const benchmark = {
     p95Ms: number;
     minMs: number;
     maxMs: number;
+    cachedAvgMs: number;
+    cachedP95Ms: number;
     score: number;
     items: number;
   }>,
@@ -66,31 +68,42 @@ if (!jsonOutput) {
 }
 
 for (const [name, input] of scenarios) {
-  for (let i = 0; i < WARMUP_RUNS; i += 1) roomOptimization(model, input);
+  for (let i = 0; i < WARMUP_RUNS; i += 1) {
+    clearRoomOptimizationCache(model);
+    roomOptimization(model, input);
+  }
 
   const samples: number[] = [];
+  const cachedSamples: number[] = [];
   let score = 0;
   let entries = 0;
   for (let i = 0; i < MEASURE_RUNS; i += 1) {
+    clearRoomOptimizationCache(model);
     const started = performance.now();
     const result = roomOptimization(model, input);
     samples.push(performance.now() - started);
+    const cachedStarted = performance.now();
+    roomOptimization(model, input);
+    cachedSamples.push(performance.now() - cachedStarted);
     score = result.score.capped;
     entries = result.entries.length;
   }
 
   const stats = summarize(samples);
+  const cachedStats = summarize(cachedSamples);
   benchmark.scenarios.push({
     name,
     avgMs: stats.avg,
     p95Ms: stats.p95,
     minMs: stats.min,
     maxMs: stats.max,
+    cachedAvgMs: cachedStats.avg,
+    cachedP95Ms: cachedStats.p95,
     score,
     items: entries,
   });
   if (!jsonOutput) {
-    console.log(`${name.padEnd(48)} avg ${formatMs(stats.avg).padStart(8)}  p95 ${formatMs(stats.p95).padStart(8)}  min ${formatMs(stats.min).padStart(8)}  max ${formatMs(stats.max).padStart(8)}  score ${score.toFixed(1).padStart(5)}  items ${String(entries).padStart(2)}`);
+    console.log(`${name.padEnd(48)} avg ${formatMs(stats.avg).padStart(8)}  p95 ${formatMs(stats.p95).padStart(8)}  cached ${formatMs(cachedStats.avg).padStart(8)}  score ${score.toFixed(1).padStart(5)}  items ${String(entries).padStart(2)}`);
   }
 }
 
