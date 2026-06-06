@@ -20,6 +20,9 @@ export function useHouseOptimizationWorker(args: {
   ownedItems: Map<ItemClass, number>;
 }): HouseOptimizationWorkerState {
   const workerRef = useRef<Worker | null>(null);
+  const readyRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const pendingInputRef = useRef<{ cacheKey: string; input: HouseInput } | null>(null);
   const resultCacheRef = useRef<Map<string, HouseOptimizationResult>>(new Map());
   const [state, setState] = useState<HouseOptimizationWorkerState>({ status: "loading", optimization: null, error: null });
   const modelData = useMemo(() => toEcoData(args.model), [args.model]);
@@ -59,46 +62,71 @@ export function useHouseOptimizationWorker(args: {
   ]);
 
   useEffect(() => {
+    workerRef.current?.terminate();
+    readyRef.current = false;
+    pendingInputRef.current = null;
+    const worker = new Worker(new URL("../workers/houseOptimizationWorker.ts", import.meta.url), { type: "module" });
+    workerRef.current = worker;
+    worker.onmessage = (event: MessageEvent<HouseWorkerResponse>) => {
+      if (workerRef.current !== worker) return;
+      if (event.data.type === "ready") {
+        readyRef.current = true;
+        const pending = pendingInputRef.current;
+        if (pending) postHouseSolve(worker, pending.cacheKey, pending.input, requestIdRef);
+        return;
+      }
+      if (event.data.type !== "result" || event.data.requestId !== requestIdRef.current) return;
+      if (event.data.ok) {
+        const pending = pendingInputRef.current;
+        if (pending) setCachedHouseResult(resultCacheRef.current, pending.cacheKey, event.data.optimization);
+        setState({ status: "ready", optimization: event.data.optimization, error: null });
+      } else {
+        setState({ status: "error", optimization: null, error: event.data.error });
+      }
+    };
+    worker.onerror = (event) => {
+      if (workerRef.current !== worker) return;
+      setState({ status: "error", optimization: null, error: event.message || "Erreur worker optimisation maison" });
+    };
+    worker.postMessage({ type: "init", modelData });
+
+    return () => {
+      worker.terminate();
+      if (workerRef.current === worker) workerRef.current = null;
+      readyRef.current = false;
+    };
+  }, [modelData]);
+
+  useEffect(() => {
     const cacheKey = houseWorkerCacheKey(input);
     const cached = resultCacheRef.current.get(cacheKey);
     if (cached) {
       resultCacheRef.current.delete(cacheKey);
       resultCacheRef.current.set(cacheKey, cached);
-      workerRef.current?.terminate();
-      workerRef.current = null;
+      requestIdRef.current += 1;
+      pendingInputRef.current = null;
       setState({ status: "ready", optimization: cloneHouseOptimization(cached), error: null });
       return;
     }
 
+    pendingInputRef.current = { cacheKey, input };
     setState({ status: "loading", optimization: null, error: null });
     const timer = window.setTimeout(() => {
-      workerRef.current?.terminate();
-      const worker = new Worker(new URL("../workers/houseOptimizationWorker.ts", import.meta.url), { type: "module" });
-      workerRef.current = worker;
-      worker.onmessage = (event: MessageEvent<HouseWorkerResponse>) => {
-        if (workerRef.current !== worker) return;
-        if (event.data.ok) {
-          setCachedHouseResult(resultCacheRef.current, cacheKey, event.data.optimization);
-          setState({ status: "ready", optimization: event.data.optimization, error: null });
-        } else {
-          setState({ status: "error", optimization: null, error: event.data.error });
-        }
-      };
-      worker.onerror = (event) => {
-        if (workerRef.current !== worker) return;
-        setState({ status: "error", optimization: null, error: event.message || "Erreur worker optimisation maison" });
-      };
-      worker.postMessage({ modelData, input: serializeHouseInput(input) });
+      const worker = workerRef.current;
+      if (worker && readyRef.current) postHouseSolve(worker, cacheKey, input, requestIdRef);
     }, DEBOUNCE_MS);
 
     return () => {
       window.clearTimeout(timer);
-      workerRef.current?.terminate();
-      workerRef.current = null;
     };
-  }, [modelData, input]);
+  }, [input]);
 
   return state;
+}
+
+function postHouseSolve(worker: Worker, cacheKey: string, input: HouseInput, requestIdRef: { current: number }) {
+  requestIdRef.current += 1;
+  worker.postMessage({ type: "solve", requestId: requestIdRef.current, input: serializeHouseInput(input) });
 }
 
 function setCachedHouseResult(cache: Map<string, HouseOptimizationResult>, key: string, result: HouseOptimizationResult) {

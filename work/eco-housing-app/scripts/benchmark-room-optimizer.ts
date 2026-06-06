@@ -2,9 +2,10 @@ import { performance } from "node:perf_hooks";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { clearHouseOptimizationCache, optimizeHouse } from "../src/domain/houseOptimizer";
 import { buildModel } from "../src/domain/model";
 import { clearRoomOptimizationCache, roomOptimization } from "../src/domain/roomOptimizer";
-import type { EcoData, ItemClass, RoomInput, SkillClass } from "../src/domain/types";
+import type { EcoData, HouseInput, ItemClass, RoomInput, SkillClass } from "../src/domain/types";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const dataPath = path.join(repoRoot, "outputs", "eco-data.json");
@@ -41,6 +42,21 @@ const scenarios = [
   ["Outdoor all skills", baseInput({ roomType: "Outdoor", tier: 5, sizeMode: "auto", selectedSkills: allSkills })],
 ] as const;
 
+const houseScenarios = [
+  ["House T2 200 materials, all skills", baseHouseInput({ constructionTier: 2, materialBudget: 200, selectedSkills: allSkills })],
+  ["House T5 600 materials, all skills", baseHouseInput({ constructionTier: 5, materialBudget: 600, selectedSkills: allSkills })],
+  ["House T5 350 materials, owned items", baseHouseInput({
+    constructionTier: 5,
+    materialBudget: 350,
+    selectedSkills: allSkills,
+    ownedItems: owned([
+      ["ElkStatuetteItem", 5],
+      ["NylonFutonBedItem", 2],
+      ["HewnNightstandItem", 3],
+    ]),
+  })],
+] as const;
+
 const benchmark = {
   commit,
   data: path.relative(repoRoot, dataPath),
@@ -56,6 +72,18 @@ const benchmark = {
     cachedP95Ms: number;
     score: number;
     items: number;
+  }>,
+  houseScenarios: [] as Array<{
+    name: string;
+    avgMs: number;
+    p95Ms: number;
+    minMs: number;
+    maxMs: number;
+    cachedAvgMs: number;
+    cachedP95Ms: number;
+    score: number;
+    rooms: number;
+    materialsUsed: number;
   }>,
 };
 
@@ -107,6 +135,54 @@ for (const [name, input] of scenarios) {
   }
 }
 
+if (!jsonOutput) {
+  console.log("");
+  console.log("House optimizer benchmark");
+}
+
+for (const [name, input] of houseScenarios) {
+  for (let i = 0; i < WARMUP_RUNS; i += 1) {
+    clearHouseOptimizationCache(model);
+    optimizeHouse(model, input);
+  }
+
+  const samples: number[] = [];
+  const cachedSamples: number[] = [];
+  let score = 0;
+  let rooms = 0;
+  let materialsUsed = 0;
+  for (let i = 0; i < MEASURE_RUNS; i += 1) {
+    clearHouseOptimizationCache(model);
+    const started = performance.now();
+    const result = optimizeHouse(model, input);
+    samples.push(performance.now() - started);
+    const cachedStarted = performance.now();
+    optimizeHouse(model, input);
+    cachedSamples.push(performance.now() - cachedStarted);
+    score = result.score;
+    rooms = result.rooms.reduce((total, room) => total + room.quantity, 0);
+    materialsUsed = result.materials.used;
+  }
+
+  const stats = summarize(samples);
+  const cachedStats = summarize(cachedSamples);
+  benchmark.houseScenarios.push({
+    name,
+    avgMs: stats.avg,
+    p95Ms: stats.p95,
+    minMs: stats.min,
+    maxMs: stats.max,
+    cachedAvgMs: cachedStats.avg,
+    cachedP95Ms: cachedStats.p95,
+    score,
+    rooms,
+    materialsUsed,
+  });
+  if (!jsonOutput) {
+    console.log(`${name.padEnd(48)} avg ${formatMs(stats.avg).padStart(8)}  p95 ${formatMs(stats.p95).padStart(8)}  cached ${formatMs(cachedStats.avg).padStart(8)}  score ${score.toFixed(1).padStart(5)}  rooms ${String(rooms).padStart(2)}  mats ${String(materialsUsed).padStart(4)}`);
+  }
+}
+
 if (jsonOutput) console.log(JSON.stringify(benchmark, null, 2));
 
 function baseInput(partial: Partial<RoomInput>): RoomInput {
@@ -128,6 +204,28 @@ function baseInput(partial: Partial<RoomInput>): RoomInput {
 
 function owned(entries: Array<[ItemClass, number]>) {
   return new Map<ItemClass, number>(entries);
+}
+
+function baseHouseInput(partial: Partial<HouseInput>): HouseInput {
+  return {
+    constructionTier: 2,
+    materialBudget: 200,
+    height: 3,
+    sameHeightForAllRooms: true,
+    maxCopiesPerRoomType: "auto",
+    selectedSkills: new Set(),
+    ownedItems: new Map(),
+    disabledItems: new Set(),
+    availability: "available",
+    minXpEfficiencyPercent: 50,
+    allowElectricPower: true,
+    allowMechanicalPower: true,
+    allowFuel: true,
+    allowWater: true,
+    allowChimney: true,
+    disabledFuelTags: new Set(),
+    ...partial,
+  };
 }
 
 function summarize(samples: number[]) {

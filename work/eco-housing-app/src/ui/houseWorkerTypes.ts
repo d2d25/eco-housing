@@ -19,14 +19,19 @@ export interface SerializedHouseInput {
   disabledFuelTags?: string[];
 }
 
-export interface HouseWorkerRequest {
+export type HouseWorkerRequest =
+  | { type: "init"; modelData: EcoData }
+  | { type: "solve"; requestId: number; input: SerializedHouseInput };
+
+export type HouseWorkerResponse =
+  | { type: "ready" }
+  | { type: "result"; requestId: number; ok: true; optimization: HouseOptimizationResult }
+  | { type: "result"; requestId: number; ok: false; error: string };
+
+export interface LegacyHouseWorkerRequest {
   modelData: EcoData;
   input: SerializedHouseInput;
 }
-
-export type HouseWorkerResponse =
-  | { ok: true; optimization: HouseOptimizationResult }
-  | { ok: false; error: string };
 
 export function serializeHouseInput(input: HouseInput): SerializedHouseInput {
   return {
