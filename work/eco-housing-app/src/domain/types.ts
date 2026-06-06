@@ -354,3 +354,77 @@ export interface RoomConstraints {
   ownedUsage: Map<ItemClass, number>;
   propertyTypeCounts: Map<string, number>;
 }
+
+export type HouseMaxCopiesPerRoomType = "auto" | 1 | 2 | 3 | 4;
+
+export interface HouseInput {
+  constructionTier: number;
+  materialBudget: number;
+  height: number;
+  sameHeightForAllRooms: boolean;
+  maxCopiesPerRoomType: HouseMaxCopiesPerRoomType;
+  selectedSkills: Set<SkillClass>;
+  ownedItems: Map<ItemClass, number>;
+  disabledItems: Set<ItemClass>;
+  availability: "available" | "all" | "locked";
+  minXpEfficiencyPercent?: number;
+  allowElectricPower?: boolean;
+  allowMechanicalPower?: boolean;
+  allowFuel?: boolean;
+  allowWater?: boolean;
+  allowChimney?: boolean;
+  disabledFuelTags?: Set<string>;
+}
+
+export interface HouseRoomCopyScore {
+  index: number;
+  score: number;
+  multiplier: number;
+}
+
+export interface HouseRoomGroup {
+  roomType: string;
+  quantity: number;
+  tier: number;
+  optimization: RoomOptimization;
+  copyScores: HouseRoomCopyScore[];
+  totalScore: number;
+  cappedByRatio?: boolean;
+  ratioCap?: number | null;
+}
+
+export interface HouseLayoutRoom {
+  id: string;
+  roomType: string;
+  width: number;
+  depth: number;
+  height: number;
+  x: number;
+  y: number;
+  score: number;
+}
+
+export interface HouseMaterialSummary {
+  budget: number;
+  used: number;
+  remaining: number;
+  isolatedCost: number;
+  sharedSavings: number;
+}
+
+export interface HouseCraftItem {
+  item: HousingItem;
+  quantity: number;
+  ownedUsed: number;
+  craftQuantity: number;
+}
+
+export interface HouseOptimizationResult {
+  score: number;
+  constructionTier: number;
+  materials: HouseMaterialSummary;
+  rooms: HouseRoomGroup[];
+  layout: HouseLayoutRoom[];
+  craftList: HouseCraftItem[];
+  warnings: string[];
+}

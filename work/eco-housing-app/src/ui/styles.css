@@ -42,7 +42,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .brand-logo { width: 48px; height: 48px; display: block; flex: 0 0 auto; border-radius: 10px; box-shadow: 0 10px 24px rgba(47, 125, 85, 0.22); overflow: hidden; }
 .brand-logo svg { display: block; width: 100%; height: 100%; }
 
-.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
 .tabs button, .button-row button, .page-actions button, .modal-tools button {
   min-height: 34px;
   border: 1px solid var(--line);
@@ -266,6 +266,176 @@ input, select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid va
   grid-template-columns: 1fr;
   gap: 10px;
   padding: 12px;
+}
+
+.house-dashboard {
+  display: grid;
+  grid-template-columns: minmax(520px, 1fr) minmax(320px, 480px);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.house-setup {
+  align-content: start;
+}
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: var(--ink);
+  font-weight: 800;
+}
+.inline-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.house-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.house-summary .summary-tile,
+.room-summary-panel .summary-tile {
+  min-height: 78px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+.house-summary .summary-tile.main,
+.room-summary-panel .summary-tile.main {
+  background: #eef8e9;
+  border-color: #add0b6;
+}
+.summary-tile span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+.summary-tile strong {
+  display: block;
+  color: var(--accent);
+  font-size: 32px;
+  line-height: 1.1;
+}
+.house-results {
+  display: grid;
+  gap: 12px;
+}
+.house-section {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.house-section h3 {
+  margin-bottom: 10px;
+}
+.house-room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 10px;
+}
+.house-room-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #d2ddcc;
+  border-radius: 8px;
+  background: #fff;
+}
+.house-room-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.house-room-card header > strong {
+  color: var(--bad);
+}
+.house-room-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.house-room-metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcf8;
+  color: var(--muted);
+  font-size: 11px;
+}
+.house-room-metrics strong {
+  color: #173124;
+  font-size: 15px;
+}
+.house-room-items {
+  display: grid;
+  gap: 5px;
+}
+.house-room-items span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+.house-side-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(280px, 420px);
+  gap: 12px;
+}
+.house-plan {
+  position: relative;
+  width: 100%;
+  min-height: 240px;
+  aspect-ratio: 16 / 7;
+  border: 1px solid #cfdccb;
+  border-radius: 8px;
+  background: repeating-linear-gradient(0deg, #f7faf5 0, #f7faf5 23px, #edf3e9 24px), repeating-linear-gradient(90deg, transparent 0, transparent 23px, rgba(47, 125, 85, 0.08) 24px);
+  overflow: hidden;
+}
+.house-plan-room {
+  position: absolute;
+  left: calc((var(--x) / var(--plan-width)) * 100%);
+  top: calc((var(--y) / var(--plan-depth)) * 100%);
+  width: calc((var(--w) / var(--plan-width)) * 100%);
+  height: calc((var(--d) / var(--plan-depth)) * 100%);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 6px;
+  border: 2px solid var(--room-color);
+  background: color-mix(in srgb, var(--room-color) 18%, white);
+  color: #17241d;
+  text-align: center;
+  font-size: 12px;
+}
+.house-plan-room small {
+  color: #324238;
+  font-weight: 800;
+}
+.craft-list {
+  display: grid;
+  gap: 7px;
+  max-height: 320px;
+  overflow: auto;
+}
+.craft-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
 }
 .summary-tile {
   min-height: 70px;

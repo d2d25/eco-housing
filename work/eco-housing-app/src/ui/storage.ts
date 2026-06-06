@@ -1,11 +1,16 @@
-import type { ItemClass, SkillClass } from "../domain/types";
+import type { HouseMaxCopiesPerRoomType, ItemClass, SkillClass } from "../domain/types";
 import { isLanguage, type Language } from "./i18n";
 
-export type ActiveView = "room" | "objects";
+export type ActiveView = "house" | "room" | "objects";
 
 export interface AppConfig {
   language: Language;
   activeView: ActiveView;
+  houseConstructionTier: number;
+  houseMaterialBudget: number;
+  houseHeight: number;
+  houseSameHeight: boolean;
+  houseMaxCopiesPerRoomType: HouseMaxCopiesPerRoomType;
   roomType: string;
   roomTier: number;
   width: number;
@@ -32,6 +37,11 @@ export interface AppConfig {
 export const DEFAULT_CONFIG: AppConfig = {
   language: "fr",
   activeView: "room",
+  houseConstructionTier: 2,
+  houseMaterialBudget: 200,
+  houseHeight: 3,
+  houseSameHeight: true,
+  houseMaxCopiesPerRoomType: "auto",
   roomType: "Bedroom",
   roomTier: 2,
   width: 6,
@@ -77,6 +87,12 @@ export function loadConfig(): AppConfig {
           ? [parsed.objectCraftSkill]
           : DEFAULT_CONFIG.objectCraftSkills,
       language: isLanguage(parsed.language) ? parsed.language : DEFAULT_CONFIG.language,
+      activeView: parsed.activeView === "house" || parsed.activeView === "room" || parsed.activeView === "objects" ? parsed.activeView : DEFAULT_CONFIG.activeView,
+      houseConstructionTier: normalizeInteger(parsed.houseConstructionTier, DEFAULT_CONFIG.houseConstructionTier, 0, 5),
+      houseMaterialBudget: normalizeInteger(parsed.houseMaterialBudget, DEFAULT_CONFIG.houseMaterialBudget, 0, 10000),
+      houseHeight: normalizeInteger(parsed.houseHeight, DEFAULT_CONFIG.houseHeight, 2, 8),
+      houseSameHeight: parsed.houseSameHeight ?? DEFAULT_CONFIG.houseSameHeight,
+      houseMaxCopiesPerRoomType: normalizeHouseMaxCopies(parsed.houseMaxCopiesPerRoomType),
       roomSizeMode: parsed.roomSizeMode === "auto" || parsed.roomSizeMode === "manual" || parsed.roomSizeMode === "materials" ? parsed.roomSizeMode : DEFAULT_CONFIG.roomSizeMode,
       materialBudget: Number.isFinite(Number(parsed.materialBudget)) ? Number(parsed.materialBudget) : DEFAULT_CONFIG.materialBudget,
       minXpEfficiencyPercent: normalizePercent(parsed.minXpEfficiencyPercent, DEFAULT_CONFIG.minXpEfficiencyPercent),
@@ -98,6 +114,18 @@ function normalizePercent(value: unknown, fallback: number) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.max(0, Math.min(100, numeric));
+}
+
+function normalizeInteger(value: unknown, fallback: number, min: number, max: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(numeric)));
+}
+
+function normalizeHouseMaxCopies(value: unknown): HouseMaxCopiesPerRoomType {
+  if (value === "auto") return "auto";
+  const numeric = Number(value);
+  return numeric === 1 || numeric === 2 || numeric === 3 || numeric === 4 ? numeric : DEFAULT_CONFIG.houseMaxCopiesPerRoomType;
 }
 
 export function saveConfig(config: AppConfig) {

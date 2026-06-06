@@ -1,34 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EcoModel, ItemClass, RoomInput, RoomOptimization, SkillClass } from "../domain/types";
-import { serializeRoomInput, type RoomWorkerResponse } from "./roomWorkerTypes";
+import type { EcoModel, HouseInput, HouseOptimizationResult, ItemClass, SkillClass } from "../domain/types";
+import { serializeHouseInput, type HouseWorkerResponse } from "./houseWorkerTypes";
 import type { AppConfig } from "./storage";
 import { toEcoData } from "./workerModelData";
 
 const DEBOUNCE_MS = 300;
 
-export type RoomOptimizationWorkerState =
+export type HouseOptimizationWorkerState =
   | { status: "loading"; optimization: null; error: null }
-  | { status: "ready"; optimization: RoomOptimization; error: null }
+  | { status: "ready"; optimization: HouseOptimizationResult; error: null }
   | { status: "error"; optimization: null; error: string };
 
-export function useRoomOptimizationWorker(args: {
+export function useHouseOptimizationWorker(args: {
   model: EcoModel;
   config: AppConfig;
   selectedSkills: Set<SkillClass>;
   disabledItems: Set<ItemClass>;
   ownedItems: Map<ItemClass, number>;
-}): RoomOptimizationWorkerState {
+}): HouseOptimizationWorkerState {
   const workerRef = useRef<Worker | null>(null);
-  const [state, setState] = useState<RoomOptimizationWorkerState>({ status: "loading", optimization: null, error: null });
+  const [state, setState] = useState<HouseOptimizationWorkerState>({ status: "loading", optimization: null, error: null });
   const modelData = useMemo(() => toEcoData(args.model), [args.model]);
-  const input = useMemo<RoomInput>(() => ({
-    roomType: args.config.roomType,
-    tier: args.config.roomTier,
-    width: args.config.width,
-    depth: args.config.depth,
-    height: args.config.height,
-    sizeMode: args.config.roomSizeMode,
-    materialBudget: args.config.materialBudget,
+  const input = useMemo<HouseInput>(() => ({
+    constructionTier: args.config.houseConstructionTier,
+    materialBudget: args.config.houseMaterialBudget,
+    height: args.config.houseHeight,
+    sameHeightForAllRooms: args.config.houseSameHeight,
+    maxCopiesPerRoomType: args.config.houseMaxCopiesPerRoomType,
     selectedSkills: args.selectedSkills,
     ownedItems: args.ownedItems,
     disabledItems: args.disabledItems,
@@ -41,13 +39,11 @@ export function useRoomOptimizationWorker(args: {
     allowChimney: args.config.allowChimney,
     disabledFuelTags: new Set(args.config.disabledFuelTags),
   }), [
-    args.config.roomType,
-    args.config.roomTier,
-    args.config.width,
-    args.config.depth,
-    args.config.height,
-    args.config.roomSizeMode,
-    args.config.materialBudget,
+    args.config.houseConstructionTier,
+    args.config.houseMaterialBudget,
+    args.config.houseHeight,
+    args.config.houseSameHeight,
+    args.config.houseMaxCopiesPerRoomType,
     args.config.minXpEfficiencyPercent,
     args.config.allowElectricPower,
     args.config.allowMechanicalPower,
@@ -64,18 +60,18 @@ export function useRoomOptimizationWorker(args: {
     setState({ status: "loading", optimization: null, error: null });
     const timer = window.setTimeout(() => {
       workerRef.current?.terminate();
-      const worker = new Worker(new URL("../workers/roomOptimizationWorker.ts", import.meta.url), { type: "module" });
+      const worker = new Worker(new URL("../workers/houseOptimizationWorker.ts", import.meta.url), { type: "module" });
       workerRef.current = worker;
-      worker.onmessage = (event: MessageEvent<RoomWorkerResponse>) => {
+      worker.onmessage = (event: MessageEvent<HouseWorkerResponse>) => {
         if (workerRef.current !== worker) return;
         if (event.data.ok) setState({ status: "ready", optimization: event.data.optimization, error: null });
         else setState({ status: "error", optimization: null, error: event.data.error });
       };
       worker.onerror = (event) => {
         if (workerRef.current !== worker) return;
-        setState({ status: "error", optimization: null, error: event.message || "Erreur worker optimisation" });
+        setState({ status: "error", optimization: null, error: event.message || "Erreur worker optimisation maison" });
       };
-      worker.postMessage({ modelData, input: serializeRoomInput(input) });
+      worker.postMessage({ modelData, input: serializeHouseInput(input) });
     }, DEBOUNCE_MS);
 
     return () => {

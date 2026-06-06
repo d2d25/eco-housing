@@ -3,10 +3,11 @@ import { createCraftResolver } from "../domain/craftResolver";
 import { byName } from "../domain/model";
 import { effectiveFloorArea, estimateObjectFloor, formatFootprint, surfacePlacementKind, surfaceSummary } from "../domain/placementRules";
 import { roomUsesMaterialTier, summarizeEntries } from "../domain/roomScoring";
-import type { EcoModel, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
+import type { EcoModel, HouseMaxCopiesPerRoomType, HouseOptimizationResult, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
 import { loadEcoModel } from "../data/ecoDataLoader";
 import { createTranslator, LANGUAGES, type Language, type Translator } from "./i18n";
 import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems, type ActiveView, type AppConfig } from "./storage";
+import { useHouseOptimizationWorker } from "./useHouseOptimizationWorker";
 import { useRoomOptimizationWorker } from "./useRoomOptimizationWorker";
 
 const PROFESSION_ORDER = ["Carpenter", "Mason", "Farmer", "Hunter", "Chef", "Tailor", "Smith", "Engineer", "Scientist"];
@@ -52,7 +53,7 @@ export function App() {
       if (!model) throw new Error(t("importBeforeData"));
       const raw = await file.text();
       const imported = parseImportedIssueJson(JSON.parse(raw), model, t);
-      setConfig((current) => ({ ...current, ...imported.config, activeView: "room" }));
+      setConfig((current) => ({ ...current, ...imported.config }));
       setOwnedItems(imported.ownedItems);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err));
@@ -73,6 +74,7 @@ export function App() {
           </div>
         </div>
         <nav className="tabs" aria-label="Navigation">
+          <button className={config.activeView === "house" ? "active" : ""} onClick={() => update({ activeView: "house" })}>{t("viewHouse")}</button>
           <button className={config.activeView === "room" ? "active" : ""} onClick={() => update({ activeView: "room" })}>{t("viewRoom")}</button>
           <button className={config.activeView === "objects" ? "active" : ""} onClick={() => update({ activeView: "objects" })}>{t("viewObjects")}</button>
         </nav>
@@ -83,7 +85,7 @@ export function App() {
         <header className="toolbar">
           <div>
             <p className="eyebrow">{t("dataSource")}</p>
-            <h2>{config.activeView === "room" ? t("roomTitle") : t("objectsTitle")}</h2>
+            <h2>{activeViewTitle(config.activeView, t)}</h2>
           </div>
           <div className="stats">
             <LanguageSwitcher language={config.language} onChange={(language) => update({ language })} />
@@ -93,7 +95,21 @@ export function App() {
           </div>
         </header>
 
-        {config.activeView === "room" ? (
+        {config.activeView === "house" ? (
+          <HousePage
+            model={model}
+            t={t}
+            language={config.language}
+            config={config}
+            update={update}
+            selectedSkills={selectedSkills}
+            disabledItems={disabledItems}
+            ownedItems={ownedItems}
+            onOpenOwned={() => setOwnedOpen(true)}
+            onOpenAllowed={() => setAllowedOpen(true)}
+            onImportJson={importExportJson}
+          />
+        ) : config.activeView === "room" ? (
           <RoomPage
             model={model}
             t={t}
@@ -144,6 +160,12 @@ function LanguageSwitcher({ language, onChange }: { language: AppConfig["languag
       ))}
     </div>
   );
+}
+
+function activeViewTitle(activeView: ActiveView, t: Translator) {
+  if (activeView === "house") return t("houseTitle");
+  if (activeView === "room") return t("roomTitle");
+  return t("objectsTitle");
 }
 
 function SkillPanel({
@@ -202,6 +224,229 @@ function SkillPanel({
       </div>
     </section>
   );
+}
+
+function HousePage(props: {
+  model: EcoModel;
+  t: Translator;
+  language: Language;
+  config: AppConfig;
+  update: (partial: Partial<AppConfig>) => void;
+  selectedSkills: Set<SkillClass>;
+  disabledItems: Set<ItemClass>;
+  ownedItems: Map<ItemClass, number>;
+  onOpenOwned: () => void;
+  onOpenAllowed: () => void;
+  onImportJson: (file: File) => void;
+}) {
+  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems } = props;
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const tiers = model.roomTiers;
+  const fuelTags = availableFuelTags(model);
+  const optimizationState = useHouseOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems });
+  const result = optimizationState.status === "ready" ? optimizationState.optimization : null;
+
+  return (
+    <section className="house-page">
+      <div className="page-actions">
+        <span />
+        <button disabled={!result} onClick={() => result && exportHouseJson(model, config, selectedSkills, ownedItems, disabledItems, result)}>{t("export")}</button>
+        <button onClick={() => importInputRef.current?.click()}>{t("import")}</button>
+        <input
+          ref={importInputRef}
+          className="file-input"
+          type="file"
+          accept="application/json,.json"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (file) props.onImportJson(file);
+            event.currentTarget.value = "";
+          }}
+        />
+        <button onClick={props.onOpenOwned}>{t("ownedObjects")} ({[...ownedItems.values()].reduce((a, b) => a + b, 0)})</button>
+        <button onClick={props.onOpenAllowed}>{t("permissions")}</button>
+      </div>
+
+      <section className="house-dashboard">
+        <section className="setup-panel house-setup">
+          <div className="segmented compact tier-buttons">
+            <span>{t("constructionTier")}</span>
+            <div>{tiers.map((tier) => <button key={tier.tier} className={config.houseConstructionTier === tier.tier ? "active" : ""} onClick={() => update({ houseConstructionTier: tier.tier })}>T{tier.tier}</button>)}</div>
+          </div>
+          <div className="field-grid">
+            <NumberField label={t("houseMaterialBudget")} value={config.houseMaterialBudget} min={0} max={10000} onChange={(houseMaterialBudget) => update({ houseMaterialBudget })} />
+            <NumberField label={t("height")} value={config.houseHeight} min={2} max={8} onChange={(houseHeight) => update({ houseHeight })} />
+            <label>{t("maxCopiesPerRoomType")}
+              <select value={String(config.houseMaxCopiesPerRoomType)} onChange={(event) => update({ houseMaxCopiesPerRoomType: parseHouseMaxCopies(event.target.value) })}>
+                <option value="auto">{t("autoCopies")}</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4+</option>
+              </select>
+            </label>
+          </div>
+          <label className="inline-check">
+            <input type="checkbox" checked={config.houseSameHeight} onChange={(event) => update({ houseSameHeight: event.target.checked })} />
+            {t("sameHeightForAllRooms")}
+          </label>
+          <section className="room-option-range">
+            <span>
+              <strong>{t("minXpEfficiency")} ({config.minXpEfficiencyPercent}%)</strong>
+              <small>{t("minXpEfficiencyHelp")}</small>
+            </span>
+            <span className="range-control">
+              <input type="range" min={0} max={100} step={5} value={config.minXpEfficiencyPercent} onChange={(event) => update({ minXpEfficiencyPercent: clampPercent(Number(event.target.value)) })} />
+              <input type="number" min={0} max={100} value={config.minXpEfficiencyPercent} onChange={(event) => update({ minXpEfficiencyPercent: clampPercent(Number.parseInt(event.target.value, 10) || 0) })} />
+            </span>
+          </section>
+          <section className="operational-options">
+            <strong>{t("operationalOptions")}</strong>
+            <div className="toggle-grid">
+              <label><input type="checkbox" checked={config.allowElectricPower} onChange={(event) => update({ allowElectricPower: event.target.checked })} />{t("allowElectricPower")}</label>
+              <label><input type="checkbox" checked={config.allowMechanicalPower} onChange={(event) => update({ allowMechanicalPower: event.target.checked })} />{t("allowMechanicalPower")}</label>
+              <label><input type="checkbox" checked={config.allowFuel} onChange={(event) => update({ allowFuel: event.target.checked })} />{t("allowFuel")}</label>
+              <label><input type="checkbox" checked={config.allowWater} onChange={(event) => update({ allowWater: event.target.checked })} />{t("allowWater")}</label>
+              <label><input type="checkbox" checked={config.allowChimney} onChange={(event) => update({ allowChimney: event.target.checked })} />{t("allowChimney")}</label>
+            </div>
+            {fuelTags.length > 0 && config.allowFuel && (
+              <div className="fuel-tag-options">
+                <span>{t("fuelTags")}</span>
+                <div>{fuelTags.map((tag) => (
+                  <label key={tag}>
+                    <input type="checkbox" checked={!config.disabledFuelTags.includes(tag)} onChange={(event) => update({ disabledFuelTags: toggleListValue(config.disabledFuelTags, tag, !event.target.checked) })} />
+                    {tag}
+                  </label>
+                ))}</div>
+              </div>
+            )}
+          </section>
+        </section>
+        <HouseSummary t={t} status={optimizationState.status} result={result} />
+      </section>
+
+      {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
+      {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
+      {result && result.rooms.length ? (
+        <section className="house-results">
+          <section className="house-section">
+            <h3>{t("recommendedRooms")}</h3>
+            <div className="house-room-grid">
+              {result.rooms.map((room) => <HouseRoomCard key={room.roomType} t={t} language={language} model={model} room={room} />)}
+            </div>
+          </section>
+          <section className="house-side-grid">
+            <section className="house-section">
+              <h3>{t("visualPlan")}</h3>
+              <HousePlan language={language} model={model} result={result} />
+            </section>
+            <section className="house-section">
+              <h3>{t("craftList")}</h3>
+              <div className="craft-list">
+                {result.craftList.filter((entry) => entry.craftQuantity > 0).slice(0, 80).map((entry) => (
+                  <div key={entry.item.itemClass} className="craft-row">
+                    <ItemName language={language} item={entry.item} />
+                    <strong>x{entry.craftQuantity}</strong>
+                    {entry.ownedUsed > 0 && <small>{t("owned")} x{entry.ownedUsed}</small>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          </section>
+        </section>
+      ) : optimizationState.status === "ready" ? <div className="empty">{t("noHousePlan")}</div> : null}
+    </section>
+  );
+}
+
+function HouseSummary({ t, status, result }: { t: Translator; status: "loading" | "ready" | "error"; result: HouseOptimizationResult | null }) {
+  return (
+    <section className="house-summary">
+      <div className="summary-tile main"><span>{t("totalHouseScore")}</span><strong>{result ? result.score.toFixed(1) : status === "loading" ? "..." : "-"}</strong></div>
+      <div className="summary-tile"><span>{t("materialsUsed")}</span><strong>{result ? `${result.materials.used}/${result.materials.budget}` : "-"}</strong></div>
+      <div className="summary-tile"><span>{t("materialsRemaining")}</span><strong>{result ? result.materials.remaining : "-"}</strong></div>
+      <div className="summary-tile"><span>{t("sharedWallSavings")}</span><strong>{result ? result.materials.sharedSavings : "-"}</strong></div>
+    </section>
+  );
+}
+
+function HouseRoomCard({ t, language, model, room }: { t: Translator; language: Language; model: EcoModel; room: HouseOptimizationResult["rooms"][number] }) {
+  const size = room.optimization.resolvedSize;
+  const summaries = summarizeEntries(room.optimization.entries).slice(0, 6);
+  return (
+    <article className="house-room-card">
+      <header>
+        <CategoryBadge t={t} language={language} model={model} category={room.roomType} />
+        <strong>x{room.quantity}</strong>
+      </header>
+      <div className="house-room-metrics">
+        <span>{t("firstRoomScore")} <strong>{room.optimization.score.capped.toFixed(1)}</strong></span>
+        <span>{t("totalRoomGroupScore")} <strong>{room.totalScore.toFixed(1)}</strong></span>
+        {size && <span>{t("roomSize")} <strong>{size.width}x{size.depth}x{size.height}</strong></span>}
+        {room.cappedByRatio && <span>{t("ratioCapped")} <strong>{room.ratioCap?.toFixed(1)}</strong></span>}
+      </div>
+      <div className="house-room-items">
+        {summaries.map((summary) => <span key={summary.item.itemClass}><ItemIcon item={summary.item} />{displayItemName(summary.item, language)} x{summary.quantityPerRoom}</span>)}
+      </div>
+    </article>
+  );
+}
+
+function HousePlan({ language, model, result }: { language: Language; model: EcoModel; result: HouseOptimizationResult }) {
+  const indoor = result.layout.filter((room) => room.roomType !== "Outdoor");
+  const maxX = Math.max(1, ...indoor.map((room) => room.x + room.width));
+  const maxY = Math.max(1, ...indoor.map((room) => room.y + room.depth));
+  return (
+    <div className="house-plan" style={{ "--plan-width": maxX, "--plan-depth": maxY } as CSSProperties}>
+      {indoor.map((room) => (
+        <div
+          key={room.id}
+          className="house-plan-room"
+          style={{ "--x": room.x, "--y": room.y, "--w": room.width, "--d": room.depth, "--room-color": categoryColor(model, room.roomType) } as CSSProperties}
+        >
+          <strong>{displayCategoryName(model, room.roomType, language)}</strong>
+          <small>{room.width}x{room.depth}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function parseHouseMaxCopies(value: string): HouseMaxCopiesPerRoomType {
+  if (value === "auto") return "auto";
+  const numeric = Number(value);
+  return numeric === 1 || numeric === 2 || numeric === 3 || numeric === 4 ? numeric : "auto";
+}
+
+function exportHouseJson(model: EcoModel, config: AppConfig, selectedSkills: Set<SkillClass>, ownedItems: Map<ItemClass, number>, disabledItems: Set<ItemClass>, result: HouseOptimizationResult) {
+  const report = {
+    format: { name: "eco-housing-house", schemaVersion: EXPORT_SCHEMA_VERSION },
+    app: { name: "Eco Housing", version: APP_VERSION, url: window.location.href, exportedAt: new Date().toISOString() },
+    houseInput: {
+      constructionTier: config.houseConstructionTier,
+      materialBudget: config.houseMaterialBudget,
+      height: config.houseHeight,
+      sameHeightForAllRooms: config.houseSameHeight,
+      maxCopiesPerRoomType: config.houseMaxCopiesPerRoomType,
+      minXpEfficiencyPercent: config.minXpEfficiencyPercent,
+    },
+    selectedSkills: [...selectedSkills].sort().map((skillClass) => ({ className: skillClass })),
+    ownedItems: [...ownedItems.entries()].filter(([, quantity]) => quantity > 0).map(([itemClass, quantity]) => ({ itemClass, quantity })),
+    disabledItems: [...disabledItems].sort(),
+    result: {
+      score: result.score,
+      materials: result.materials,
+      rooms: result.rooms.map((room) => ({
+        roomType: room.roomType,
+        quantity: room.quantity,
+        score: room.totalScore,
+        size: room.optimization.resolvedSize,
+        items: room.optimization.entries.map((entry) => entry.item.itemClass),
+      })),
+    },
+    data: { housingItems: model.housingItems.length },
+  };
+  downloadJson(`eco-housing-house-${new Date().toISOString().slice(0, 10)}.json`, report);
 }
 
 function RoomPage(props: {
@@ -491,12 +736,16 @@ function exportIssueJson(model: EcoModel, config: AppConfig, selectedSkills: Set
     },
   };
 
-  const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: "application/json" });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  downloadJson(`eco-housing-issue-${timestamp}.json`, report);
+}
+
+function downloadJson(filename: string, data: unknown) {
+  const blob = new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   link.href = url;
-  link.download = `eco-housing-issue-${timestamp}.json`;
+  link.download = filename;
   document.body.append(link);
   link.click();
   link.remove();
@@ -512,15 +761,9 @@ function parseImportedIssueJson(data: unknown, model: EcoModel, t: Translator): 
     throw new Error(`${t("unsupportedSchema")} ${schemaVersion || "missing"}. ${t("supportedVersion")} ${EXPORT_SCHEMA_VERSION}.`);
   }
 
-  const roomInput = isRecord(data.roomInput) ? data.roomInput : null;
-  if (!roomInput) throw new Error(t("missingRoomInput"));
-
   const roomNames = new Set(model.roomCategories.map((room) => room.name));
   const skillClasses = new Set(model.skills.map((skill) => skill.className));
   const itemClasses = new Set(model.housingItems.map((item) => item.itemClass));
-  const roomType = readString(roomInput.roomType, "roomInput.roomType", t);
-  if (!roomNames.has(roomType)) throw new Error(`${t("unknownRoomType")} "${roomType}".`);
-
   const selectedSkills = readClassArray(data.selectedSkills, "selectedSkills", t).filter((skillClass) => skillClasses.has(skillClass));
   const disabledItems = readClassArray(data.disabledItems, "disabledItems", t).filter((itemClass) => itemClasses.has(itemClass));
   const ownedItems = new Map<ItemClass, number>();
@@ -530,8 +773,32 @@ function parseImportedIssueJson(data: unknown, model: EcoModel, t: Translator): 
     if (quantity > 0 && itemClasses.has(itemClass)) ownedItems.set(itemClass, quantity);
   }
 
+  const houseInput = isRecord(data.houseInput) ? data.houseInput : null;
+  if (houseInput) {
+    return {
+      config: {
+        activeView: "house",
+        houseConstructionTier: readNumber(houseInput.constructionTier, "houseInput.constructionTier", t),
+        houseMaterialBudget: readNumber(houseInput.materialBudget, "houseInput.materialBudget", t),
+        houseHeight: readNumber(houseInput.height, "houseInput.height", t),
+        houseSameHeight: Boolean(houseInput.sameHeightForAllRooms ?? DEFAULT_CONFIG.houseSameHeight),
+        houseMaxCopiesPerRoomType: parseHouseMaxCopies(String(houseInput.maxCopiesPerRoomType ?? DEFAULT_CONFIG.houseMaxCopiesPerRoomType)),
+        minXpEfficiencyPercent: clampPercent(Number(houseInput.minXpEfficiencyPercent ?? DEFAULT_CONFIG.minXpEfficiencyPercent)),
+        selectedSkills,
+        disabledItems,
+      },
+      ownedItems,
+    };
+  }
+
+  const roomInput = isRecord(data.roomInput) ? data.roomInput : null;
+  if (!roomInput) throw new Error(t("missingRoomInput"));
+  const roomType = readString(roomInput.roomType, "roomInput.roomType", t);
+  if (!roomNames.has(roomType)) throw new Error(`${t("unknownRoomType")} "${roomType}".`);
+
   return {
     config: {
+      activeView: "room",
       roomType,
       roomTier: readNumber(roomInput.tier, "roomInput.tier", t),
       width: readNumber(roomInput.width, "roomInput.width", t),
@@ -585,7 +852,8 @@ function readObjectArray(value: unknown, field: string, t: Translator) {
 }
 
 function readClassArray(value: unknown, field: string, t: Translator) {
-  return readObjectArray(value, field, t).map((entry) => readString(entry.className ?? entry.itemClass, `${field}.className`, t));
+  if (!Array.isArray(value)) throw new Error(`${t("missingField")} ${field}.`);
+  return value.map((entry) => typeof entry === "string" ? entry : isRecord(entry) ? readString(entry.className ?? entry.itemClass, `${field}.className`, t) : "").filter(Boolean);
 }
 
 function availableFuelTags(model: EcoModel) {
