@@ -458,7 +458,7 @@ function HouseAlternativesModal({
             </div>
           </section>
         )}
-        {variants.length > 0 && (
+        {equivalentChoices.length === 0 && variants.length > 0 && (
           <section>
             <h3>{t("variants")}</h3>
             <div className="house-alternative-list">
