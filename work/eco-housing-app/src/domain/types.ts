@@ -183,6 +183,41 @@ export interface EcoData {
   housingEquivalenceGroups?: HousingEquivalenceGroup[];
 }
 
+export interface EcoServerStatus {
+  serverName?: string | null;
+  ecoVersion?: string | null;
+  exporterVersion?: string | null;
+  generatedAt?: string | null;
+  endpoints?: string[];
+  warnings?: string[];
+}
+
+export interface EcoEconomyListing {
+  itemClass: ItemClass;
+  quantity: number;
+  price: number;
+  currency: string;
+  storeName?: string | null;
+  seller?: string | null;
+}
+
+export interface EcoEconomyData {
+  fetchedAt: string;
+  currencies: string[];
+  listings: EcoEconomyListing[];
+  warnings?: string[];
+}
+
+export interface EcoRuntimeData {
+  source: "vanilla" | "server";
+  ecoData: EcoData;
+  economyData?: EcoEconomyData | null;
+  status?: EcoServerStatus | null;
+  serverUrl?: string | null;
+  loadedAt: string;
+  warnings?: string[];
+}
+
 export interface HousingItem extends HousingValue {
   tags: string[];
   recipes: Recipe[];

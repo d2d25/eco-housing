@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>EcoHousingExporter</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Stub project.
+    Add Eco ModKit reference assemblies here when available, for example:
+
+    <ItemGroup>
+      <Reference Include="Eco.Core">
+        <HintPath>path-to-eco-modkit/Eco.Core.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+  -->
+</Project>

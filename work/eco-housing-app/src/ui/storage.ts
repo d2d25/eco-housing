@@ -32,6 +32,10 @@ export interface AppConfig {
   objectCategories: string[];
   objectCraftSkills: string[];
   objectSort: "name-asc" | "name-desc" | "xp-desc" | "xp-asc" | "floor-desc" | "floor-asc" | "volume-desc" | "volume-asc";
+  dataSource: "vanilla" | "server";
+  serverUrl: string;
+  economyBudget: number;
+  economyCurrency: string;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -63,6 +67,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   objectCategories: [],
   objectCraftSkills: [],
   objectSort: "name-asc",
+  dataSource: "vanilla",
+  serverUrl: "",
+  economyBudget: 0,
+  economyCurrency: "",
 };
 
 const CONFIG_KEY = "ecoHousingReactConfig";
@@ -104,6 +112,10 @@ export function loadConfig(): AppConfig {
       disabledFuelTags: Array.isArray(parsed.disabledFuelTags) ? parsed.disabledFuelTags.filter((value: unknown): value is string => typeof value === "string") : DEFAULT_CONFIG.disabledFuelTags,
       devMode: Boolean(parsed.devMode),
       objectSort: parsed.objectSort === "name" ? DEFAULT_CONFIG.objectSort : parsed.objectSort ?? DEFAULT_CONFIG.objectSort,
+      dataSource: parsed.dataSource === "server" ? "server" : DEFAULT_CONFIG.dataSource,
+      serverUrl: typeof parsed.serverUrl === "string" ? parsed.serverUrl : DEFAULT_CONFIG.serverUrl,
+      economyBudget: Number.isFinite(Number(parsed.economyBudget)) ? Math.max(0, Number(parsed.economyBudget)) : DEFAULT_CONFIG.economyBudget,
+      economyCurrency: typeof parsed.economyCurrency === "string" ? parsed.economyCurrency : DEFAULT_CONFIG.economyCurrency,
     };
   } catch {
     return DEFAULT_CONFIG;

@@ -8,6 +8,7 @@ French notes are kept in [docs/fr](./docs/fr/) for project context, but the main
 
 - **Room** page: optimizes one room by room type, tier, size, unlocked skills, owned items, and allowed items.
 - **Objects** page: browses housing items with value, craft availability, footprint, room volume, and placement information.
+- **Server Connected** mode: experimental V0.2 path for loading server data and economy snapshots from an `EcoHousingExporter` server mod.
 - Beta version: `0.1.0-beta`.
 
 ## Run Locally
@@ -83,3 +84,5 @@ Equivalent configuration:
 `outputs/eco-data.json` and extracted Eco icons/assets are generated from a local Eco installation. They are included for beta testing convenience, but they are not owned by this project and are not covered by any project source-code license.
 
 See [NOTICE.md](./NOTICE.md) before reusing, redistributing, or relicensing generated Eco data or assets.
+
+For the server-connected API contract, see [docs/SERVER_CONNECTED.md](./docs/SERVER_CONNECTED.md).

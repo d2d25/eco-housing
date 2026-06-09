@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { createCraftResolver } from "../domain/craftResolver";
+import { createCostResolver, type CostResolver } from "../domain/costResolver";
 import { byName } from "../domain/model";
 import { effectiveFloorArea, estimateObjectFloor, formatFootprint, surfacePlacementKind, surfaceSummary } from "../domain/placementRules";
 import { roomUsesMaterialTier, summarizeEntries } from "../domain/roomScoring";
-import type { EcoModel, HouseMaxCopiesPerRoomType, HouseOptimizationResult, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
-import { loadEcoModel } from "../data/ecoDataLoader";
+import type { EcoModel, EcoRuntimeData, HouseMaxCopiesPerRoomType, HouseOptimizationResult, HousingItem, ItemClass, RoomOptimization, Skill, SkillClass } from "../domain/types";
+import { loadVanillaRuntimeData } from "../data/ecoDataLoader";
+import { loadServerRuntimeData } from "../data/ecoServerClient";
+import { buildModel } from "../domain/model";
 import { createTranslator, LANGUAGES, type Language, type Translator } from "./i18n";
 import { DEFAULT_CONFIG, loadConfig, loadOwnedItems, saveConfig, saveOwnedItems, type ActiveView, type AppConfig } from "./storage";
 import { useHouseOptimizationWorker } from "./useHouseOptimizationWorker";
@@ -17,7 +20,10 @@ const SUPPORTED_EXPORT_SCHEMA_VERSIONS = new Set([1]);
 
 export function App() {
   const [model, setModel] = useState<EcoModel | null>(null);
+  const [runtimeData, setRuntimeData] = useState<EcoRuntimeData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [serverLoading, setServerLoading] = useState(false);
   const [config, setConfig] = useState<AppConfig>(() => loadConfig());
   const [ownedItems, setOwnedItems] = useState<Map<ItemClass, number>>(() => loadOwnedItems());
   const [ownedOpen, setOwnedOpen] = useState(false);
@@ -26,7 +32,12 @@ export function App() {
   const t = useMemo(() => createTranslator(config.language), [config.language]);
 
   useEffect(() => {
-    loadEcoModel().then(setModel).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    loadVanillaRuntimeData()
+      .then((runtime) => {
+        setRuntimeData(runtime);
+        setModel(buildModel(runtime.ecoData));
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   useEffect(() => saveConfig(config), [config]);
@@ -43,9 +54,46 @@ export function App() {
     const resolver = createCraftResolver(model, selectedSkills);
     return model.housingItems.filter((item) => resolver.resolve(item.itemClass).craftable).length;
   }, [model, selectedSkills]);
+  const costResolver = useMemo(() => model ? createCostResolver({
+    model,
+    economyData: runtimeData?.economyData,
+    selectedSkills,
+    ownedItems,
+    currency: config.economyCurrency || null,
+  }) : null, [model, runtimeData?.economyData, selectedSkills, ownedItems, config.economyCurrency]);
 
   function update(partial: Partial<AppConfig>) {
     setConfig((current) => ({ ...current, ...partial }));
+  }
+
+  async function connectServer() {
+    setServerLoading(true);
+    setServerError(null);
+    try {
+      const runtime = await loadServerRuntimeData(config.serverUrl);
+      setRuntimeData(runtime);
+      setModel(buildModel(runtime.ecoData));
+      update({ dataSource: "server", serverUrl: runtime.serverUrl ?? config.serverUrl });
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setServerLoading(false);
+    }
+  }
+
+  async function useVanillaData() {
+    setServerLoading(true);
+    setServerError(null);
+    try {
+      const runtime = await loadVanillaRuntimeData();
+      setRuntimeData(runtime);
+      setModel(buildModel(runtime.ecoData));
+      update({ dataSource: "vanilla" });
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setServerLoading(false);
+    }
   }
 
   async function importExportJson(file: File) {
@@ -108,6 +156,7 @@ export function App() {
             onOpenOwned={() => setOwnedOpen(true)}
             onOpenAllowed={() => setAllowedOpen(true)}
             onImportJson={importExportJson}
+            costResolver={costResolver}
           />
         ) : config.activeView === "room" ? (
           <RoomPage
@@ -122,6 +171,7 @@ export function App() {
             onOpenOwned={() => setOwnedOpen(true)}
             onOpenAllowed={() => setAllowedOpen(true)}
             onImportJson={importExportJson}
+            costResolver={costResolver}
           />
         ) : (
           <ObjectsPage model={model} t={t} language={config.language} config={config} update={update} selectedSkills={selectedSkills} />
@@ -130,7 +180,7 @@ export function App() {
 
       {ownedOpen && <OwnedItemsModal t={t} language={config.language} model={model} ownedItems={ownedItems} selectedSkills={selectedSkills} onChange={setOwnedItems} onClose={() => setOwnedOpen(false)} />}
       {allowedOpen && <AllowedItemsModal t={t} language={config.language} model={model} disabledItems={disabledItems} onChange={(next) => update({ disabledItems: [...next] })} onClose={() => setAllowedOpen(false)} />}
-      {settingsOpen && <SettingsModal t={t} config={config} update={update} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsModal t={t} runtimeData={runtimeData} serverError={serverError} serverLoading={serverLoading} config={config} update={update} onConnectServer={connectServer} onUseVanilla={useVanillaData} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
@@ -238,8 +288,9 @@ function HousePage(props: {
   onOpenOwned: () => void;
   onOpenAllowed: () => void;
   onImportJson: (file: File) => void;
+  costResolver: CostResolver | null;
 }) {
-  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems } = props;
+  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems, costResolver } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const tiers = model.roomTiers;
   const fuelTags = availableFuelTags(model);
@@ -332,7 +383,7 @@ function HousePage(props: {
           <section className="house-section">
             <h3>{t("recommendedRooms")}</h3>
             <div className="house-room-grid">
-              {result.rooms.map((room) => <HouseRoomCard key={room.roomType} t={t} language={language} model={model} room={room} selectedSkills={selectedSkills} />)}
+              {result.rooms.map((room) => <HouseRoomCard key={room.roomType} t={t} language={language} model={model} room={room} selectedSkills={selectedSkills} costResolver={costResolver} />)}
             </div>
           </section>
           <section className="house-side-grid">
@@ -370,7 +421,7 @@ function HouseSummary({ t, status, result }: { t: Translator; status: "loading" 
   );
 }
 
-function HouseRoomCard({ t, language, model, room, selectedSkills }: { t: Translator; language: Language; model: EcoModel; room: HouseOptimizationResult["rooms"][number]; selectedSkills: Set<SkillClass> }) {
+function HouseRoomCard({ t, language, model, room, selectedSkills, costResolver }: { t: Translator; language: Language; model: EcoModel; room: HouseOptimizationResult["rooms"][number]; selectedSkills: Set<SkillClass>; costResolver: CostResolver | null }) {
   const size = room.optimization.resolvedSize;
   const summaries = summarizeEntries(room.optimization.entries).slice(0, 6);
   return (
@@ -392,18 +443,19 @@ function HouseRoomCard({ t, language, model, room, selectedSkills }: { t: Transl
         {room.cappedByRatio && <span>{t("ratioCapped")} <strong>{room.ratioCap?.toFixed(1)}</strong></span>}
       </div>
       <div className="house-room-items">
-        {summaries.map((summary) => <HouseRoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} selectedSkills={selectedSkills} />)}
+        {summaries.map((summary) => <HouseRoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} selectedSkills={selectedSkills} costResolver={costResolver} />)}
       </div>
     </article>
   );
 }
 
-function HouseRoomItem({ t, language, model, summary, selectedSkills }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; selectedSkills: Set<SkillClass> }) {
+function HouseRoomItem({ t, language, model, summary, selectedSkills, costResolver }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; selectedSkills: Set<SkillClass>; costResolver: CostResolver | null }) {
   const [alternativesOpen, setAlternativesOpen] = useState(false);
   const item = summary.item;
   const variants = variantAlternatives(model, item);
   const equivalentChoices = equivalentChoiceGroups(model, item, selectedSkills);
   const hasAlternatives = variants.length > 0 || equivalentChoices.length > 0;
+  const cost = costResolver?.resolve(item.itemClass, summary.quantityPerRoom);
   return (
     <>
       <span className="house-room-item">
@@ -412,6 +464,7 @@ function HouseRoomItem({ t, language, model, summary, selectedSkills }: { t: Tra
           <span>{displayItemName(item, language)}</span>
           <strong>x{summary.quantityPerRoom}</strong>
         </span>
+        {cost?.totalCost != null && <span className="house-item-cost">{formatMoney(cost.totalCost, cost.currency)}</span>}
         {hasAlternatives && (
           <button className="house-alt-button" type="button" onClick={() => setAlternativesOpen(true)}>
             {t("alternatives")}
@@ -550,8 +603,9 @@ function RoomPage(props: {
   onOpenOwned: () => void;
   onOpenAllowed: () => void;
   onImportJson: (file: File) => void;
+  costResolver: CostResolver | null;
 }) {
-  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems } = props;
+  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems, costResolver } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Cultural");
   const tiers = model.roomTiers;
@@ -702,7 +756,7 @@ function RoomPage(props: {
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
       {optimizationState.status === "error" && <OptimizationError t={t} message={optimizationState.error} />}
       {optimizationState.status === "ready" && (
-        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} devMode={config.devMode} selectedSkills={selectedSkills} />
+        <RoomOptimizationResults t={t} language={language} model={model} optimization={optimizationState.optimization} width={resultWidth} depth={resultDepth} height={resultHeight} roomVolume={roomVolume} usesRoomSize={usesRoomSize} devMode={config.devMode} selectedSkills={selectedSkills} costResolver={costResolver} />
       )}
     </section>
   );
@@ -1013,6 +1067,7 @@ function RoomOptimizationResults({
   usesRoomSize,
   devMode,
   selectedSkills,
+  costResolver,
 }: {
   t: Translator;
   language: Language;
@@ -1025,6 +1080,7 @@ function RoomOptimizationResults({
   usesRoomSize: boolean;
   devMode: boolean;
   selectedSkills: Set<SkillClass>;
+  costResolver: CostResolver | null;
 }) {
   const score = optimization.score;
   const surface = surfaceSummary(optimization.entries);
@@ -1071,7 +1127,7 @@ function RoomOptimizationResults({
               <strong>{group.score.toFixed(1)}</strong>
             </div>
             <div className="opt-items">
-              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} devMode={devMode} selectedSkills={selectedSkills} />) : <div className="empty">{t("noItemWithFilters")}</div>}
+              {summarizeEntries(group.entries).length ? summarizeEntries(group.entries).map((summary) => <RoomItem key={summary.item.itemClass} t={t} language={language} model={model} summary={summary} devMode={devMode} selectedSkills={selectedSkills} costResolver={costResolver} />) : <div className="empty">{t("noItemWithFilters")}</div>}
             </div>
           </article>
         ))}
@@ -1088,12 +1144,13 @@ function OptimizationError({ t, message }: { t: Translator; message: string }) {
   return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
 }
 
-function RoomItem({ t, language, model, summary, devMode, selectedSkills }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; devMode: boolean; selectedSkills: Set<SkillClass> }) {
+function RoomItem({ t, language, model, summary, devMode, selectedSkills, costResolver }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; devMode: boolean; selectedSkills: Set<SkillClass>; costResolver: CostResolver | null }) {
   const item = summary.item;
   const [variantModal, setVariantModal] = useState<{ title: string; variants: HousingItem[] } | null>(null);
   const variants = variantAlternatives(model, item);
   const equivalentChoices = equivalentChoiceGroups(model, item, selectedSkills);
   const isEquivalentGroup = equivalentChoices.length > 0;
+  const cost = costResolver?.resolve(item.itemClass, summary.quantityPerRoom);
   return (
     <>
       <details className={isEquivalentGroup ? "opt-item equivalent-card" : "opt-item"}>
@@ -1116,6 +1173,8 @@ function RoomItem({ t, language, model, summary, devMode, selectedSkills }: { t:
           </span>
         <span className={`room-item-metrics${devMode ? " has-give" : ""}`}>
           <MetricBadge label="XP" value={summary.score.toFixed(2)} />
+          {cost?.totalCost != null && <MetricBadge label={t("costShort")} value={formatMoney(cost.totalCost, cost.currency)} />}
+          {cost && cost.stockBlocking && <MetricBadge label={t("stockShort")} value={`${cost.availableQuantity}/${summary.quantityPerRoom}`} />}
           <MetricBadge label={t("floorShort")} value={String(summary.totalFloor)} />
           <MetricBadge label={t("m3Short")} value={String(summary.totalRequiredVolume)} />
           {devMode && <button className="copy-give-button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copyText(giveCommand(item, summary.quantityPerRoom)); }}>{t("copyGive")}</button>}
@@ -1166,6 +1225,11 @@ function formatCompactNumber(value: number) {
 
 function giveCommand(item: HousingItem, quantity: number) {
   return `/give ${item.itemClass},${quantity}`;
+}
+
+function formatMoney(value: number, currency: string | null | undefined) {
+  const formatted = formatCompactNumber(value);
+  return currency ? `${formatted} ${currency}` : formatted;
 }
 
 async function copyText(value: string) {
@@ -1712,10 +1776,68 @@ function AllowedItemsModal({ t, language, model, disabledItems, onChange, onClos
   );
 }
 
-function SettingsModal({ t, config, update, onClose }: { t: Translator; config: AppConfig; update: (partial: Partial<AppConfig>) => void; onClose: () => void }) {
+function SettingsModal({
+  t,
+  runtimeData,
+  serverError,
+  serverLoading,
+  config,
+  update,
+  onConnectServer,
+  onUseVanilla,
+  onClose,
+}: {
+  t: Translator;
+  runtimeData: EcoRuntimeData | null;
+  serverError: string | null;
+  serverLoading: boolean;
+  config: AppConfig;
+  update: (partial: Partial<AppConfig>) => void;
+  onConnectServer: () => void;
+  onUseVanilla: () => void;
+  onClose: () => void;
+}) {
+  const economyCount = runtimeData?.economyData?.listings.length ?? 0;
   return (
     <Modal title={t("settings")} onClose={onClose}>
       <div className="settings-list">
+        <section className="settings-section">
+          <strong>{t("dataSourceSettings")}</strong>
+          <label className="settings-row">
+            <input type="radio" checked={config.dataSource === "vanilla"} onChange={onUseVanilla} />
+            <span>
+              <strong>{t("vanillaBundled")}</strong>
+              <small>{t("vanillaBundledHelp")}</small>
+            </span>
+          </label>
+          <label className="settings-row">
+            <input type="radio" checked={config.dataSource === "server"} onChange={() => update({ dataSource: "server" })} />
+            <span>
+              <strong>{t("serverConnected")}</strong>
+              <small>{t("serverConnectedHelp")}</small>
+            </span>
+          </label>
+          <div className="server-connect-row">
+            <input value={config.serverUrl} onChange={(event) => update({ serverUrl: event.target.value })} placeholder="http://127.0.0.1:3001" />
+            <button type="button" disabled={serverLoading || !config.serverUrl.trim()} onClick={onConnectServer}>{serverLoading ? t("syncing") : t("connectSync")}</button>
+          </div>
+          <div className={runtimeData?.source === "server" ? "server-status connected" : "server-status"}>
+            <strong>{runtimeData?.source === "server" ? t("connected") : t("usingVanilla")}</strong>
+            <span>{runtimeData?.status?.serverName ?? runtimeData?.serverUrl ?? t("vanillaBundled")}</span>
+            <small>{t("lastSync")} {runtimeData ? new Date(runtimeData.loadedAt).toLocaleString() : "-"}</small>
+            <small>{t("economyListings")} {economyCount}</small>
+            {runtimeData?.status?.ecoVersion && <small>Eco {runtimeData.status.ecoVersion}</small>}
+            {runtimeData?.status?.exporterVersion && <small>Exporter {runtimeData.status.exporterVersion}</small>}
+          </div>
+          {serverError && <div className="server-status error"><strong>{t("serverConnectionError")}</strong><span>{serverError}</span></div>}
+          {runtimeData?.warnings?.length ? <div className="server-status warn"><strong>{t("warnings")}</strong><span>{runtimeData.warnings.slice(0, 4).join(" | ")}</span></div> : null}
+          <div className="field-grid">
+            <NumberField label={t("budget")} value={config.economyBudget} min={0} max={100000000} onChange={(economyBudget) => update({ economyBudget })} />
+            <label>{t("currency")}
+              <input value={config.economyCurrency} onChange={(event) => update({ economyCurrency: event.target.value })} placeholder={t("anyCurrency")} />
+            </label>
+          </div>
+        </section>
         <label className="settings-row">
           <input type="checkbox" checked={config.devMode} onChange={(event) => update({ devMode: event.target.checked })} />
           <span>
