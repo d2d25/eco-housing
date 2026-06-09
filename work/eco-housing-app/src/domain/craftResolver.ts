@@ -2,7 +2,7 @@ import type { CraftRequirement, CraftResolution, EcoModel, ItemClass, Recipe, Sk
 
 const ALWAYS_AVAILABLE_SKILLS = new Set(["SurvivalistSkill", "SelfImprovementSkill"]);
 const BASELINE_STATION_OBJECTS = new Set<WorldObjectClass>(["CampsiteObject", "WorkbenchObject"]);
-const BASELINE_RESOURCE_TAGS = new Set(["Crop", "NaturalFiber"]);
+const BASELINE_RESOURCE_TAGS = new Set(["Crop", "NaturalFiber", "Wood"]);
 
 export interface CraftResolver {
   resolve(itemClass: ItemClass, mode?: "full" | "ingredient" | "station"): CraftResolution;
@@ -17,6 +17,7 @@ export interface CraftAvailabilityIndex {
 
 export function createCraftResolver(model: EcoModel, selectedSkills: Set<SkillClass>): CraftResolver {
   const cache = new Map<string, CraftResolution>();
+  const itemClassesByTag = buildItemClassesByTag();
 
   function resolve(itemClass: ItemClass, mode: "full" | "ingredient" | "station" = "full", stack: string[] = []): CraftResolution {
     if (stack.includes(itemClass)) return { craftable: true, missing: [], required: [] };
@@ -80,11 +81,20 @@ export function createCraftResolver(model: EcoModel, selectedSkills: Set<SkillCl
     }
 
     for (const ingredient of recipe.ingredients ?? []) {
-      if (!ingredient.itemClass) continue;
-      mergeResolution(resolve(ingredient.itemClass, "ingredient", stack), missing, required);
+      if (ingredient.itemClass) mergeResolution(resolve(ingredient.itemClass, "ingredient", stack), missing, required);
+      else if (ingredient.tag) mergeResolution(resolveIngredientTag(ingredient.tag, stack), missing, required);
     }
 
     return { craftable: missing.length === 0, missing: uniqueRequirements(missing), required: uniqueRequirements(required) };
+  }
+
+  function resolveIngredientTag(tag: string, stack: string[]): CraftResolution {
+    if (BASELINE_RESOURCE_TAGS.has(tag)) return { craftable: true, missing: [], required: [] };
+    const candidates = itemClassesByTag.get(tag) ?? [];
+    if (!candidates.length) return { craftable: true, missing: [], required: [] };
+    const attempts = candidates.map((itemClass) => resolve(itemClass, "ingredient", stack));
+    const craftable = attempts.find((attempt) => attempt.craftable);
+    return craftable ?? attempts.sort((a, b) => a.missing.length - b.missing.length)[0] ?? { craftable: true, missing: [], required: [] };
   }
 
   function addSkillRequirement(skillClass: SkillClass | null | undefined, level: number | null | undefined, missing: CraftRequirement[], required: CraftRequirement[]) {
@@ -98,6 +108,28 @@ export function createCraftResolver(model: EcoModel, selectedSkills: Set<SkillCl
   function isProfessionCategory(skillClass: SkillClass) {
     const skill = model.skillsByClass.get(skillClass);
     return Boolean(skill?.isProfession);
+  }
+
+  function buildItemClassesByTag() {
+    const byTag = new Map<string, Set<ItemClass>>();
+    const add = (tag: string, itemClass: ItemClass) => {
+      const values = byTag.get(tag) ?? new Set<ItemClass>();
+      values.add(itemClass);
+      byTag.set(tag, values);
+    };
+
+    for (const item of model.items ?? []) {
+      for (const tag of item.tags ?? []) add(tag, item.className);
+    }
+
+    for (const recipe of model.recipes ?? []) {
+      for (const product of recipe.products ?? []) {
+        if (!product.itemClass?.endsWith("Item")) continue;
+        add(product.itemClass.slice(0, -"Item".length), product.itemClass);
+      }
+    }
+
+    return new Map([...byTag.entries()].map(([tag, values]) => [tag, [...values].sort()]));
   }
 
   return { resolve };

@@ -31,4 +31,15 @@ describe("craft availability index", () => {
     expect(none.isCraftable("AshlarStoneFireplaceItem")).toBe(false);
     expect(all.isCraftable("AshlarStoneFireplaceItem")).toBe(true);
   });
+
+  test("resolves tagged ingredients like CompositeLumber before marking trophies available", () => {
+    const huntingOnly = createCraftAvailabilityIndex(model, new Set<SkillClass>(["HuntingSkill"]));
+    const all = createCraftAvailabilityIndex(model, new Set(model.skills.map((skill) => skill.className)));
+
+    expect(huntingOnly.resolve("BisonMountItem").craftable).toBe(false);
+    expect(huntingOnly.resolve("BisonMountItem").missing.map((requirement) => requirement.skillClass)).toContain("CompositesSkill");
+    expect(all.resolve("BisonMountItem").craftable).toBe(true);
+    expect(huntingOnly.resolve("StuffedBisonItem").craftable).toBe(false);
+    expect(all.resolve("StuffedBisonItem").craftable).toBe(true);
+  });
 });
