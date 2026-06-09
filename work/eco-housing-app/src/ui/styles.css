@@ -373,6 +373,11 @@ input, select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid va
   color: #173124;
   font-size: 15px;
 }
+.house-room-metrics small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
 .house-room-items {
   display: grid;
   gap: 6px;

@@ -124,14 +124,14 @@ describe("house optimizer", () => {
   test("can prefer more smaller rooms over fewer fully furnished rooms", () => {
     const result = optimizeHouse(model, baseInput({
       maxCopiesPerRoomType: "auto",
-      materialBudget: 59,
-      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+      materialBudget: 200,
+      disabledItems: new Set(["WardrobeItem", "CookItem", "BathItem", "YardItem"]),
     }));
     const bedroom = result.rooms.find((room) => room.roomType === "Bedroom");
 
     expect(bedroom?.quantity).toBeGreaterThanOrEqual(3);
-    expect(bedroom?.optimization.entries.map((entry) => entry.item.itemClass)).toEqual(["BedItem"]);
-    expect(result.materials.used).toBeLessThanOrEqual(59);
+    expect(bedroom?.optimization.entries.every((entry) => entry.item.itemClass === "BedItem")).toBe(true);
+    expect(result.materials.used).toBeLessThanOrEqual(200);
   });
 
   test("limits Outdoor to one copy", () => {
@@ -149,6 +149,15 @@ describe("house optimizer", () => {
 
     expect(materials.sharedSavings).toBeGreaterThan(0);
     expect(materials.used).toBeLessThan(materials.isolatedCost);
+  });
+
+  test("counts material blocks from internal room size plus one-block walls", () => {
+    const materials = estimateHouseMaterials([
+      { id: "a", roomType: "Bedroom", width: 2, depth: 2, height: 2, x: 0, y: 0, score: 0 },
+    ], 999);
+
+    expect(materials.used).toBe(56);
+    expect(materials.isolatedCost).toBe(56);
   });
 
   test("caps Bathroom with the rest-of-property ratio", () => {

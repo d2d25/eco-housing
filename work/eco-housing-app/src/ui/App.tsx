@@ -382,7 +382,13 @@ function HouseRoomCard({ t, language, model, room, selectedSkills }: { t: Transl
       <div className="house-room-metrics">
         <span>{t("firstRoomScore")} <strong>{room.optimization.score.capped.toFixed(1)}</strong></span>
         <span>{t("totalRoomGroupScore")} <strong>{room.totalScore.toFixed(1)}</strong></span>
-        {size && <span>{t("roomSize")} <strong>{size.width}x{size.depth}x{size.height}</strong></span>}
+        {size && (
+          <span>
+            {t("roomSize")}
+            <strong>{t("internalSizeShort")} {size.width}x{size.depth}x{size.height}</strong>
+            <small>{t("externalSizeShort")} {size.width + 2}x{size.depth + 2}x{size.height + 2}</small>
+          </span>
+        )}
         {room.cappedByRatio && <span>{t("ratioCapped")} <strong>{room.ratioCap?.toFixed(1)}</strong></span>}
       </div>
       <div className="house-room-items">

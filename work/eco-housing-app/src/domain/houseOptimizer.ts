@@ -500,7 +500,7 @@ function buildSimpleLayout(rooms: HouseLayoutRoom[]) {
 }
 
 function isolatedRoomMaterialCost(room: HouseLayoutRoom) {
-  return (2 * room.width * room.depth) + (2 * room.height * (room.width + room.depth));
+  return ((room.width + 2) * (room.depth + 2) * (room.height + 2)) - (room.width * room.depth * room.height);
 }
 
 function estimateSharedWallSavings(rooms: HouseLayoutRoom[]) {
@@ -517,12 +517,12 @@ function sharedWallArea(a: HouseLayoutRoom, b: HouseLayoutRoom) {
   const verticalTouch = a.x + a.width === b.x || b.x + b.width === a.x;
   if (verticalTouch) {
     const overlap = Math.max(0, Math.min(a.y + a.depth, b.y + b.depth) - Math.max(a.y, b.y));
-    return overlap * Math.min(a.height, b.height);
+    return overlap > 0 ? (overlap + 2) * (Math.min(a.height, b.height) + 2) : 0;
   }
   const horizontalTouch = a.y + a.depth === b.y || b.y + b.depth === a.y;
   if (horizontalTouch) {
     const overlap = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
-    return overlap * Math.min(a.height, b.height);
+    return overlap > 0 ? (overlap + 2) * (Math.min(a.height, b.height) + 2) : 0;
   }
   return 0;
 }
