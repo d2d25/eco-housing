@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework Condition="'$(EcoHousingAdvisorTests)' != 'true'">net8.0</TargetFramework>
+    <TargetFrameworks Condition="'$(EcoHousingAdvisorTests)' == 'true'">net8.0;net10.0</TargetFrameworks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>EcoHousingAdvisor</AssemblyName>
+    <EcoReferencePath Condition="'$(EcoReferencePath)' == ''"></EcoReferencePath>
+    <EcoReferencePattern Condition="'$(EcoReferencePattern)' == ''">Eco*.dll</EcoReferencePattern>
+    <OutputType Condition="'$(EcoHousingAdvisorTests)' == 'true'">Exe</OutputType>
+    <StartupObject Condition="'$(EcoHousingAdvisorTests)' == 'true'">EcoHousingAdvisor.Tests.HousingAdvisorDomainTests</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(EcoHousingAdvisorTests)' != 'true'">
+    <Compile Remove="Tests\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(EcoReferencePath)' != ''">
+    <EcoReferenceAssembly Include="$(EcoReferencePath)\$(EcoReferencePattern)" />
+    <Reference Include="@(EcoReferenceAssembly)">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
