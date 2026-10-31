@@ -1,19 +1,33 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition="'$(EcoHousingSmokeTest)' != 'true'">net8.0</TargetFramework>
+    <TargetFrameworks Condition="'$(EcoHousingSmokeTest)' == 'true'">net8.0;net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>EcoHousingExporter</AssemblyName>
+    <EcoReferencePath Condition="'$(EcoReferencePath)' == ''"></EcoReferencePath>
+    <EcoReferencePattern Condition="'$(EcoReferencePattern)' == ''">Eco*.dll</EcoReferencePattern>
+    <OutputType Condition="'$(EcoHousingSmokeTest)' == 'true'">Exe</OutputType>
+    <StartupObject Condition="'$(EcoHousingSmokeTest)' == 'true'">EcoHousingExporter.ExporterSmokeTest</StartupObject>
   </PropertyGroup>
 
-  <!--
-    Stub project.
-    Add Eco ModKit reference assemblies here when available, for example:
+  <ItemGroup Condition="'$(EcoHousingSmokeTest)' != 'true'">
+    <Compile Remove="ExporterSmokeTest.cs" />
+  </ItemGroup>
 
-    <ItemGroup>
-      <Reference Include="Eco.Core">
-        <HintPath>path-to-eco-modkit/Eco.Core.dll</HintPath>
-      </Reference>
-    </ItemGroup>
-  -->
+  <ItemGroup>
+    <Compile Remove="EcoMod\UserCode\**\*.cs" />
+    <Compile Remove="dist\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(EcoReferencePath)' != ''">
+    <EcoReferenceAssembly Include="$(EcoReferencePath)\$(EcoReferencePattern)" />
+    <Reference Include="@(EcoReferenceAssembly)">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
 </Project>

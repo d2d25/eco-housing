@@ -1,8 +1,9 @@
 import { createCraftAvailabilityIndex } from "./craftResolver";
+import { compareEconomyTie, economyAccepts, economyScoreValue, isEconomyEnabled, summarizeEntryEconomy, type EconomyPlanInput } from "./economyPlanner";
 import { byName } from "./model";
 import { floorAreaWhenOnSurface, itemFootprint } from "./placementRules";
 import { compatibleCategoriesForRoom, diminishingMultiplier, estimateEntriesScore, scoreSummary, supportCapPercentForCategory } from "./roomScoring";
-import type { EcoModel, HousingItem, ItemClass, ItemOptimizationProfile, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization, RoomOptimizationRequest, RoomOptimizationResult, RoomSolver } from "./types";
+import type { EcoModel, EconomySummary, HousingItem, ItemClass, ItemOptimizationProfile, OptimizationEntry, OptimizationGroup, OptimizationObjective, RoomConstraints, RoomInput, RoomOptimization, RoomOptimizationRequest, RoomOptimizationResult, RoomSolver } from "./types";
 
 const MIN_NON_OWNED_CREDITED_SCORE = 0.1;
 const MAX_ENTRIES_PER_CATEGORY = 8;
@@ -33,6 +34,7 @@ interface OptimizationContext {
   orderedCategories: string[];
   generalSupportCategories: string[];
   duplicateScoreCache: Map<ItemClass, number[]>;
+  economyInput: EconomyPlanInput;
 }
 
 interface CategoryPlan {
@@ -54,6 +56,7 @@ interface RoomPlan {
   cappedScore: number;
   afterSupportCaps: number;
   entryCount: number;
+  economy: EconomySummary | null;
 }
 
 export class BrowserBranchAndBoundSolver implements RoomSolver {
@@ -76,6 +79,8 @@ export function optimizeRoom(model: EcoModel, input: RoomOptimizationRequest): R
   const entries = surfaceNormalized.groups.flatMap((group) => group.entries);
   const resolvedSize = resolveRoomSize(model, input, entries);
   const constraints = resolvedSize ? { ...surfaceNormalized.constraints, maxWidth: resolvedSize.width, maxDepth: resolvedSize.depth, maxHeight: resolvedSize.height, maxFloor: resolvedSize.floorArea, maxVolume: resolvedSize.volume } : surfaceNormalized.constraints;
+  const economyInput = economyInputFromRoom(input);
+  const economyCandidates = context.orderedCategories.flatMap((category) => candidateItemsForCategory(context, category));
   const result = {
     roomName: input.roomType,
     groups: surfaceNormalized.groups,
@@ -83,6 +88,7 @@ export function optimizeRoom(model: EcoModel, input: RoomOptimizationRequest): R
     entries,
     constraints,
     resolvedSize,
+    economy: summarizeEntryEconomy(model, { ...economyInput, candidates: economyCandidates }, entries, scoreSummary(model, surfaceNormalized.groups, input.tier, input.roomType).capped),
   };
   setCachedOptimization(model, input, result);
   return result;
@@ -162,6 +168,7 @@ export function buildOptimizationContext(model: EcoModel, input: RoomInput): Opt
     orderedCategories,
     generalSupportCategories: general,
     duplicateScoreCache: new Map(),
+    economyInput: economyInputFromRoom(input),
   };
 }
 
@@ -195,6 +202,9 @@ export function selectBestRoomPlan(context: OptimizationContext): RoomPlan {
         };
         const groups = [...plan.groups, group];
         const summary = scoreSummary(context.model, groups, context.input.tier, context.input.roomType);
+        const entries = groups.flatMap((entryGroup) => entryGroup.entries);
+        const economy = summarizeEntryEconomy(context.model, context.economyInput, entries, summary.capped);
+        if (!economyAccepts(economy)) continue;
         nextPlans.push({
           groups,
           constraints: categoryPlan.constraints,
@@ -203,6 +213,7 @@ export function selectBestRoomPlan(context: OptimizationContext): RoomPlan {
           cappedScore: summary.capped,
           afterSupportCaps: summary.afterSupportCaps,
           entryCount: plan.entryCount + categoryPlan.entries.length,
+          economy,
         });
       }
     }
@@ -301,7 +312,9 @@ function compareEquivalentRepresentative(context: OptimizationContext, a: Housin
   const ownedB = (context.input.ownedItems.get(b.itemClass) ?? 0) > 0;
   const craftableA = context.craftAvailability.isCraftable(a.itemClass);
   const craftableB = context.craftAvailability.isCraftable(b.itemClass);
-  return Number(ownedB) - Number(ownedA) || Number(craftableB) - Number(craftableA) || byName(a, b);
+  const costA = isEconomyEnabled(context.economyInput) ? summarizeEntryEconomy(context.model, context.economyInput, [syntheticEntry(a)], a.value) : null;
+  const costB = isEconomyEnabled(context.economyInput) ? summarizeEntryEconomy(context.model, context.economyInput, [syntheticEntry(b)], b.value) : null;
+  return Number(ownedB) - Number(ownedA) || Number(craftableB) - Number(craftableA) || compareEconomyTie(costA, costB) || byName(a, b);
 }
 
 function availabilityFilter(item: HousingItem, context: OptimizationContext) {
@@ -531,10 +544,21 @@ function compareRoomPlans(context: OptimizationContext, a: RoomPlan, b: RoomPlan
     return ratioB - ratioA || b.cappedScore - a.cappedScore || a.entryCount - b.entryCount || a.stableKey.localeCompare(b.stableKey);
   }
 
+  if (context.economyInput.objective === "bestXpPerCredit") {
+    return (
+      economyScoreValue(b.economy, b.cappedScore) - economyScoreValue(a.economy, a.cappedScore) ||
+      b.cappedScore - a.cappedScore ||
+      compareEconomyTie(a.economy, b.economy) ||
+      a.entryCount - b.entryCount ||
+      a.stableKey.localeCompare(b.stableKey)
+    );
+  }
+
   if (context.objective.kind === "maximizeUsefulRoomScore" || context.objective.kind === "maximizeScorePerCost" || context.objective.kind === "reachTargetScore") {
     return (
       b.cappedScore - a.cappedScore ||
       b.afterSupportCaps - a.afterSupportCaps ||
+      compareEconomyTie(a.economy, b.economy) ||
       a.entryCount - b.entryCount ||
       b.ownedCount - a.ownedCount ||
       a.stableKey.localeCompare(b.stableKey)
@@ -742,6 +766,15 @@ function optimizationCacheKey(input: RoomOptimizationRequest) {
     allowChimney: input.allowChimney ?? null,
     disabledFuelTags: [...(input.disabledFuelTags ?? new Set<string>())].sort(),
     objective: input.objective ?? DEFAULT_OBJECTIVE,
+    economyEnabled: input.economyEnabled ?? false,
+    economyBudget: input.economyBudget ?? null,
+    economyCurrency: input.economyCurrency ?? null,
+    economyObjective: input.economyObjective ?? null,
+    economyData: input.economyData ? {
+      fetchedAt: input.economyData.fetchedAt,
+      currencies: [...input.economyData.currencies].sort(),
+      listings: input.economyData.listings.map((listing) => ({ itemClass: listing.itemClass, quantity: listing.quantity, price: listing.price, currency: listing.currency })).sort((a, b) => a.itemClass.localeCompare(b.itemClass) || a.price - b.price),
+    } : null,
   });
 }
 
@@ -767,6 +800,35 @@ function emptyRoomPlan(input: RoomInput): RoomPlan {
     cappedScore: 0,
     afterSupportCaps: 0,
     entryCount: 0,
+    economy: null,
+  };
+}
+
+function economyInputFromRoom(input: RoomInput): EconomyPlanInput {
+  return {
+    enabled: input.economyEnabled,
+    economyData: input.economyData,
+    selectedSkills: input.selectedSkills,
+    ownedItems: input.ownedItems,
+    budget: input.economyBudget,
+    currency: input.economyCurrency,
+    objective: input.economyObjective,
+  };
+}
+
+function syntheticEntry(item: HousingItem): OptimizationEntry {
+  return {
+    item,
+    type: item.typeForRoomLimit ?? item.itemClass,
+    itemCount: 1,
+    typeCount: 1,
+    multiplier: 1,
+    baseScore: item.value,
+    rawScore: item.value,
+    score: item.value,
+    capped: false,
+    supportCapLoss: 0,
+    fromOwned: false,
   };
 }
 

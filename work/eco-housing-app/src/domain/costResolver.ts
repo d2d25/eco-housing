@@ -2,7 +2,7 @@ import { uniqueRequirements } from "./craftResolver";
 import type { CraftRequirement, EcoEconomyData, EcoModel, ItemClass, Recipe, SkillClass } from "./types";
 
 export interface CostSource {
-  kind: "owned" | "buy" | "craft" | "unavailable";
+  kind: "owned" | "buy" | "craft" | "station" | "unavailable";
   itemClass: ItemClass;
   quantity: number;
   unitCost: number | null;
@@ -19,7 +19,7 @@ export interface CostResolution {
   unitCost: number | null;
   totalCost: number | null;
   currency: string | null;
-  source: CostSource["kind"];
+  source: Exclude<CostSource["kind"], "station">;
   sources: CostSource[];
   canBuy: boolean;
   canCraft: boolean;
@@ -33,6 +33,7 @@ export interface CostResolver {
 }
 
 const BASELINE_RESOURCE_TAGS = new Set(["Crop", "NaturalFiber", "Wood"]);
+const BASELINE_STATION_OBJECTS = new Set(["CampsiteObject", "WorkbenchObject"]);
 
 export function createCostResolver(args: {
   model: EcoModel;
@@ -44,6 +45,7 @@ export function createCostResolver(args: {
   const { model, economyData, selectedSkills, ownedItems = new Map(), currency = null } = args;
   const listingsByItem = buildListingsByItem(economyData, currency);
   const itemClassesByTag = buildItemClassesByTag(model);
+  const purchasableAlternativesByItem = buildPurchasableAlternativesByItem(model);
   const cache = new Map<string, CostResolution>();
 
   function resolve(itemClass: ItemClass, quantity = 1, stack: string[] = []): CostResolution {
@@ -76,16 +78,21 @@ export function createCostResolver(args: {
   }
 
   function resolveBuy(itemClass: ItemClass, quantity: number): CostResolution {
-    const listings = listingsByItem.get(itemClass) ?? [];
-    let remaining = quantity;
-    const sources: CostSource[] = [];
-    for (const listing of listings) {
-      if (remaining <= 0) break;
-      const used = Math.min(remaining, listing.quantity);
-      sources.push({ ...listing, quantity: used, totalCost: used * (listing.unitCost ?? 0) });
-      remaining -= used;
-    }
-    return storeResult({ itemClass, quantity, availableQuantity: quantity - remaining, sources, missing: [] });
+    const candidateClasses = [itemClass, ...(purchasableAlternativesByItem.get(itemClass) ?? [])];
+    const listings = candidateClasses.flatMap((candidate) => listingsByItem.get(candidate) ?? []);
+    const currencies = [...new Set(listings.map((listing) => listing.currency ?? ""))].sort();
+    const attempts = currencies.map((listingCurrency) => {
+      let remaining = quantity;
+      const sources: CostSource[] = [];
+      for (const listing of listings.filter((entry) => (entry.currency ?? "") === listingCurrency)) {
+        if (remaining <= 0) break;
+        const used = Math.min(remaining, listing.quantity);
+        sources.push({ ...listing, quantity: used, totalCost: used * (listing.unitCost ?? 0) });
+        remaining -= used;
+      }
+      return storeResult({ itemClass, quantity, availableQuantity: quantity - remaining, sources, missing: [] });
+    });
+    return attempts.sort((a, b) => (b.availableQuantity >= quantity ? 1 : 0) - (a.availableQuantity >= quantity ? 1 : 0) || compareCost(a, b))[0] ?? storeResult({ itemClass, quantity, availableQuantity: 0, sources: [], missing: [] });
   }
 
   function resolveCraft(itemClass: ItemClass, quantity: number, stack: string[]): CostResolution {
@@ -104,6 +111,26 @@ export function createCostResolver(args: {
     addRecipeSkillRequirement(recipe, missing);
     if (missing.length) return storeResult({ itemClass, quantity, availableQuantity: 0, sources, missing });
     let availableQuantity = quantity;
+
+    const stationItemClass = recipe.craftingTableClass ? model.itemByWorldObject.get(recipe.craftingTableClass) : null;
+    if (stationItemClass && recipe.craftingTableClass && !BASELINE_STATION_OBJECTS.has(recipe.craftingTableClass)) {
+      const station = resolve(stationItemClass, 1, stack);
+      missing.push(...station.missing);
+      if (station.availableQuantity < 1) availableQuantity = 0;
+      else {
+        const paidStationSource = station.sources.find((source) => source.kind === "buy" && source.unitCost != null) ?? station.sources.find((source) => source.unitCost != null);
+        sources.push({
+          kind: "station",
+          itemClass: stationItemClass,
+          quantity: 1,
+          unitCost: station.unitCost,
+          totalCost: station.totalCost,
+          currency: station.currency,
+          storeName: paidStationSource?.storeName,
+          seller: paidStationSource?.seller,
+        });
+      }
+    }
 
     for (const ingredient of recipe.ingredients ?? []) {
       const ingredientQuantity = Math.max(1, Math.ceil((ingredient.quantity ?? 1) * quantity));
@@ -158,13 +185,14 @@ function buildListingsByItem(economyData?: EcoEconomyData | null, currency?: str
   const byItem = new Map<ItemClass, CostSource[]>();
   for (const listing of economyData?.listings ?? []) {
     if (currency && listing.currency !== currency) continue;
+    const unitCost = effectiveListingUnitCost(listing.price, listing.taxRate, listing.fee);
     const entries = byItem.get(listing.itemClass) ?? [];
     entries.push({
       kind: "buy",
       itemClass: listing.itemClass,
       quantity: listing.quantity,
-      unitCost: listing.price,
-      totalCost: listing.price * listing.quantity,
+      unitCost,
+      totalCost: unitCost * listing.quantity,
       currency: listing.currency,
       storeName: listing.storeName,
       seller: listing.seller,
@@ -173,6 +201,13 @@ function buildListingsByItem(economyData?: EcoEconomyData | null, currency?: str
   }
   for (const entries of byItem.values()) entries.sort((a, b) => (a.unitCost ?? Infinity) - (b.unitCost ?? Infinity));
   return byItem;
+}
+
+export function effectiveListingUnitCost(price: number, taxRate?: number | null, fee?: number | null) {
+  const base = Number.isFinite(price) ? Math.max(0, price) : 0;
+  const tax = taxRate != null && Number.isFinite(taxRate) && taxRate > 0 ? taxRate : 0;
+  const fixedFee = fee != null && Number.isFinite(fee) && fee > 0 ? fee : 0;
+  return base * (1 + tax) + fixedFee;
 }
 
 function buildItemClassesByTag(model: EcoModel) {
@@ -191,6 +226,31 @@ function buildItemClassesByTag(model: EcoModel) {
   return new Map([...byTag.entries()].map(([tag, values]) => [tag, [...values].sort()]));
 }
 
+function buildPurchasableAlternativesByItem(model: EcoModel) {
+  const alternatives = new Map<ItemClass, Set<ItemClass>>();
+  const add = (base: ItemClass | null | undefined, alternative: ItemClass | null | undefined) => {
+    if (!base || !alternative || base === alternative) return;
+    const values = alternatives.get(base) ?? new Set<ItemClass>();
+    values.add(alternative);
+    alternatives.set(base, values);
+  };
+
+  for (const item of model.items ?? []) {
+    for (const variant of item.variantItemClasses ?? []) add(item.className, variant);
+    for (const equivalent of item.equivalentItemClasses ?? []) add(item.className, equivalent);
+  }
+
+  for (const recipe of model.recipes ?? []) {
+    if (!recipe.variantBaseRecipeClass) continue;
+    const baseRecipe = model.recipes.find((candidate) => candidate.className === recipe.variantBaseRecipeClass);
+    const baseItemClass = baseRecipe?.products?.find((product) => product.itemClass)?.itemClass;
+    const variantItemClass = recipe.products?.find((product) => product.itemClass)?.itemClass;
+    add(baseItemClass, variantItemClass);
+  }
+
+  return new Map([...alternatives.entries()].map(([itemClass, values]) => [itemClass, [...values].sort()]));
+}
+
 function chooseBest(a: CostResolution, b: CostResolution) {
   if (a.availableQuantity >= a.quantity && b.availableQuantity < b.quantity) return a;
   if (b.availableQuantity >= b.quantity && a.availableQuantity < a.quantity) return b;
@@ -207,12 +267,16 @@ function unavailable(itemClass: ItemClass, quantity: number, missing: CraftRequi
 
 function storeResult(args: { itemClass: ItemClass; quantity: number; availableQuantity: number; sources: CostSource[]; missing: CraftRequirement[] }): CostResolution {
   const paidSources = args.sources.filter((source) => source.totalCost != null && source.totalCost > 0);
-  const totalCost = paidSources.length ? paidSources.reduce((total, source) => total + (source.totalCost ?? 0), 0) : args.availableQuantity >= args.quantity ? 0 : null;
-  const currency = paidSources.find((source) => source.currency)?.currency ?? null;
+  const paidCurrencies = [...new Set(paidSources.map((source) => source.currency).filter(Boolean))];
+  const mixedCurrencies = paidCurrencies.length > 1;
+  const totalCost = mixedCurrencies ? null : paidSources.length ? paidSources.reduce((total, source) => total + (source.totalCost ?? 0), 0) : args.availableQuantity >= args.quantity ? 0 : null;
+  const currency = mixedCurrencies ? null : paidSources.find((source) => source.currency)?.currency ?? null;
   const source = args.sources.some((entry) => entry.kind === "buy")
     ? "buy"
     : args.sources.some((entry) => entry.kind === "craft")
       ? "craft"
+      : args.sources.some((entry) => entry.kind === "station")
+        ? "craft"
       : args.sources.some((entry) => entry.kind === "owned")
         ? "owned"
         : "unavailable";
@@ -226,7 +290,7 @@ function storeResult(args: { itemClass: ItemClass; quantity: number; availableQu
     source,
     sources: args.sources,
     canBuy: args.sources.some((entry) => entry.kind === "buy"),
-    canCraft: args.sources.some((entry) => entry.kind === "craft"),
+    canCraft: args.sources.some((entry) => entry.kind === "craft" || entry.kind === "station"),
     missing: uniqueRequirements(args.missing),
     stockBlocking: args.availableQuantity < args.quantity,
   };

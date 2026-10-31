@@ -11,6 +11,7 @@ const ecoData: EcoData = {
   roomTiers: [],
   worldObjects: [],
   occupancy: [],
+  warnings: ["data warning"],
 };
 
 const economyData: EcoEconomyData = {
@@ -23,6 +24,7 @@ const status: EcoServerStatus = {
   serverName: "Test Server",
   ecoVersion: "1.0",
   exporterVersion: "0.2",
+  dataCache: { state: "warming", startedAt: "2026-01-01T00:00:00.000Z", readyAt: null, lastError: null },
   warnings: ["mock warning"],
 };
 
@@ -33,7 +35,9 @@ describe("eco server client", () => {
 
   test("normalizes server urls", () => {
     expect(normalizeServerUrl("localhost:3001/")).toBe("http://localhost:3001");
+    expect(normalizeServerUrl("localhost:3012/api/v1/eco-housing/")).toBe("http://localhost:3012");
     expect(normalizeServerUrl("https://eco.example.test/base/")).toBe("https://eco.example.test/base");
+    expect(normalizeServerUrl("https://eco.example.test/base/api/v1/eco-housing/")).toBe("https://eco.example.test/base");
   });
 
   test("loads status, data, and economy from exporter endpoints", async () => {
@@ -46,8 +50,10 @@ describe("eco server client", () => {
 
     expect(runtime.source).toBe("server");
     expect(runtime.status?.serverName).toBe("Test Server");
+    expect(runtime.status?.dataCache?.state).toBe("warming");
     expect(runtime.economyData?.listings[0]?.itemClass).toBe("ChairItem");
     expect(runtime.warnings).toContain("mock warning");
+    expect(runtime.warnings).toContain("data warning");
   });
 
   test("rejects invalid economy payloads", async () => {
@@ -57,5 +63,15 @@ describe("eco server client", () => {
     }));
 
     await expect(loadServerRuntimeData("http://server.test")).rejects.toThrow("missing listings");
+  });
+
+  test("rejects invalid construction material payloads", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const invalidData = { ...ecoData, constructionMaterials: [{ tier: 2 }] };
+      const body = url.endsWith("/status") ? status : url.endsWith("/data") ? invalidData : economyData;
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+    await expect(loadServerRuntimeData("http://server.test")).rejects.toThrow("missing itemClasses");
   });
 });

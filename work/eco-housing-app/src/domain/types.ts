@@ -118,6 +118,12 @@ export interface RoomTier {
   diminishingReturnPercent: number;
 }
 
+export interface ConstructionMaterialTier {
+  tier: number;
+  itemClasses: ItemClass[];
+  source?: "server" | "vanillaFallback" | string;
+}
+
 export interface WorldObjectRequirement {
   className: WorldObjectClass;
   displayName?: string | null;
@@ -181,6 +187,8 @@ export interface EcoData {
   worldObjects: WorldObjectRequirement[];
   occupancy: Occupancy[];
   housingEquivalenceGroups?: HousingEquivalenceGroup[];
+  constructionMaterials?: ConstructionMaterialTier[];
+  warnings?: string[];
 }
 
 export interface EcoServerStatus {
@@ -190,6 +198,14 @@ export interface EcoServerStatus {
   generatedAt?: string | null;
   endpoints?: string[];
   warnings?: string[];
+  dataCache?: EcoDataCacheStatus | null;
+}
+
+export interface EcoDataCacheStatus {
+  state: "empty" | "building" | "warming" | "enriching" | "ready" | "failed" | string;
+  startedAt?: string | null;
+  readyAt?: string | null;
+  lastError?: string | null;
 }
 
 export interface EcoEconomyListing {
@@ -199,6 +215,10 @@ export interface EcoEconomyListing {
   currency: string;
   storeName?: string | null;
   seller?: string | null;
+  storeId?: string | null;
+  sellerId?: string | null;
+  taxRate?: number | null;
+  fee?: number | null;
 }
 
 export interface EcoEconomyData {
@@ -216,6 +236,128 @@ export interface EcoRuntimeData {
   serverUrl?: string | null;
   loadedAt: string;
   warnings?: string[];
+}
+
+export type EconomyObjectiveKind = "maxXp" | "maxXpUnderBudget" | "bestXpPerCredit";
+
+export interface EconomyPurchaseItem {
+  itemClass: ItemClass;
+  quantity: number;
+  availableQuantity: number;
+  unitCost: number | null;
+  totalCost: number | null;
+  currency: string | null;
+  source: "owned" | "buy" | "craft" | "unavailable";
+  stockBlocking: boolean;
+  xp: number;
+  xpPerCredit: number | null;
+  bestStoreName?: string | null;
+  bestSeller?: string | null;
+  sources: EconomyPurchaseSource[];
+}
+
+export interface EconomyPurchaseSource {
+  kind: "owned" | "buy" | "craft" | "station" | "unavailable";
+  itemClass: ItemClass;
+  quantity: number;
+  unitCost: number | null;
+  totalCost: number | null;
+  currency: string | null;
+  storeName?: string | null;
+  seller?: string | null;
+}
+
+export interface EconomyStockUse {
+  itemClass: ItemClass;
+  quantity: number;
+  availableQuantity: number;
+  currency: string | null;
+  storeName?: string | null;
+  seller?: string | null;
+  unitCost?: number | null;
+  stockBlocking: boolean;
+}
+
+export interface EconomyAnalysis {
+  bestXpPerCredit: EconomyPurchaseItem | null;
+  worstXpPerCredit: EconomyPurchaseItem | null;
+  strongestXp: EconomyPurchaseItem | null;
+  unavailableItems: EconomyPurchaseItem[];
+  stockLimitedItems: EconomyPurchaseItem[];
+  expensiveItems: EconomyPurchaseItem[];
+  rejectedItems: EconomyRejectedItem[];
+  categories: EconomyCategoryAnalysis[];
+  cheaperAlternatives: EconomyCheaperAlternative[];
+  marketGaps: EconomyMarketGap[];
+}
+
+export type EconomyRejectionReason = "unavailable" | "otherCurrency" | "stock" | "noPrice" | "overBudget" | "notSelected";
+
+export interface EconomyRejectedItem {
+  itemClass: ItemClass;
+  category: string;
+  reason: EconomyRejectionReason;
+  xp: number;
+  availableQuantity: number;
+  unitCost: number | null;
+  totalCost: number | null;
+  currency: string | null;
+  xpPerCredit: number | null;
+  availableCurrencies?: string[];
+}
+
+export interface EconomyCategoryAnalysis {
+  category: string;
+  bestXpPerCredit: EconomyRejectedItem | null;
+  strongestXp: EconomyRejectedItem | null;
+  cheapestAvailable: EconomyRejectedItem | null;
+  unavailableItems: EconomyRejectedItem[];
+  stockLimitedItems: EconomyRejectedItem[];
+  noPriceItems: EconomyRejectedItem[];
+}
+
+export interface EconomyCheaperAlternative {
+  itemClass: ItemClass;
+  alternativeItemClass: ItemClass;
+  category: string;
+  currentTotalCost: number;
+  alternativeTotalCost: number;
+  savings: number;
+  currency: string | null;
+  xp: number;
+}
+
+export type EconomyMarketGapReason = "noListing" | "noPrice" | "unavailable" | "otherCurrency";
+
+export interface EconomyMarketGap {
+  itemClass: ItemClass;
+  category: string;
+  reason: EconomyMarketGapReason;
+  xp: number;
+  canCraft: boolean;
+  totalCost: number | null;
+  currency: string | null;
+  availableCurrencies?: string[];
+}
+
+export interface EconomySummary {
+  enabled: boolean;
+  objective: EconomyObjectiveKind;
+  budget: number | null;
+  currency: string | null;
+  totalCost: number | null;
+  objectCost: number | null;
+  materialCost?: number | null;
+  remainingBudget: number | null;
+  xpPerCredit: number | null;
+  purchaseList: EconomyPurchaseItem[];
+  stockBlocking: EconomyPurchaseItem[];
+  stockUsage: EconomyStockUse[];
+  stockOveruse: EconomyStockUse[];
+  ownedUsage: EconomyStockUse[];
+  ownedOveruse: EconomyStockUse[];
+  analysis: EconomyAnalysis;
+  warnings: string[];
 }
 
 export interface HousingItem extends HousingValue {
@@ -303,6 +445,11 @@ export interface RoomInput {
   allowWater?: boolean;
   allowChimney?: boolean;
   disabledFuelTags?: Set<string>;
+  economyEnabled?: boolean;
+  economyBudget?: number | null;
+  economyCurrency?: string | null;
+  economyObjective?: EconomyObjectiveKind;
+  economyData?: EcoEconomyData | null;
   objective?: OptimizationObjective;
 }
 
@@ -364,6 +511,7 @@ export interface RoomOptimization {
   entries: OptimizationEntry[];
   constraints: RoomConstraints;
   resolvedSize?: ResolvedRoomSize | null;
+  economy?: EconomySummary | null;
 }
 
 export interface ResolvedRoomSize {
@@ -409,6 +557,11 @@ export interface HouseInput {
   allowWater?: boolean;
   allowChimney?: boolean;
   disabledFuelTags?: Set<string>;
+  economyEnabled?: boolean;
+  economyBudget?: number | null;
+  economyCurrency?: string | null;
+  economyObjective?: EconomyObjectiveKind;
+  economyData?: EcoEconomyData | null;
 }
 
 export interface HouseRoomCopyScore {
@@ -462,4 +615,5 @@ export interface HouseOptimizationResult {
   layout: HouseLayoutRoom[];
   craftList: HouseCraftItem[];
   warnings: string[];
+  economy?: EconomySummary | null;
 }

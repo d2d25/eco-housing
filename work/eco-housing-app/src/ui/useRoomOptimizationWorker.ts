@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EcoModel, ItemClass, RoomInput, RoomOptimization, SkillClass } from "../domain/types";
+import type { EcoEconomyData, EcoModel, ItemClass, RoomInput, RoomOptimization, SkillClass } from "../domain/types";
 import { serializeRoomInput, type RoomWorkerResponse } from "./roomWorkerTypes";
 import type { AppConfig } from "./storage";
 import { toEcoData } from "./workerModelData";
@@ -17,6 +17,7 @@ export function useRoomOptimizationWorker(args: {
   selectedSkills: Set<SkillClass>;
   disabledItems: Set<ItemClass>;
   ownedItems: Map<ItemClass, number>;
+  economyData?: EcoEconomyData | null;
 }): RoomOptimizationWorkerState {
   const workerRef = useRef<Worker | null>(null);
   const [state, setState] = useState<RoomOptimizationWorkerState>({ status: "loading", optimization: null, error: null });
@@ -40,6 +41,11 @@ export function useRoomOptimizationWorker(args: {
     allowWater: args.config.allowWater,
     allowChimney: args.config.allowChimney,
     disabledFuelTags: new Set(args.config.disabledFuelTags),
+    economyEnabled: args.config.economyEnabled && Boolean(args.economyData),
+    economyBudget: args.config.economyBudget,
+    economyCurrency: args.config.economyCurrency || null,
+    economyObjective: args.config.economyObjective,
+    economyData: args.economyData ?? null,
   }), [
     args.config.roomType,
     args.config.roomTier,
@@ -55,6 +61,11 @@ export function useRoomOptimizationWorker(args: {
     args.config.allowWater,
     args.config.allowChimney,
     args.config.disabledFuelTags,
+    args.config.economyEnabled,
+    args.config.economyBudget,
+    args.config.economyCurrency,
+    args.config.economyObjective,
+    args.economyData,
     args.selectedSkills,
     args.ownedItems,
     args.disabledItems,

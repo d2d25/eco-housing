@@ -23,6 +23,11 @@ describe("room worker serialization", () => {
       allowWater: false,
       allowChimney: true,
       disabledFuelTags: new Set(["Torch"]),
+      economyEnabled: true,
+      economyBudget: 250,
+      economyCurrency: "Credits",
+      economyObjective: "maxXpUnderBudget",
+      economyData: { fetchedAt: "2026-01-01T00:00:00.000Z", currencies: ["Credits"], listings: [{ itemClass: "StumpLatrineItem", quantity: 2, price: 5, currency: "Credits" }] },
     };
 
     const serialized = serializeRoomInput(input);
@@ -34,6 +39,9 @@ describe("room worker serialization", () => {
     expect(serialized.allowElectricPower).toBe(false);
     expect(serialized.allowWater).toBe(false);
     expect(serialized.disabledFuelTags).toEqual(["Torch"]);
+    expect(serialized.economyEnabled).toBe(true);
+    expect(serialized.economyBudget).toBe(250);
+    expect(serialized.economyData?.listings[0]?.itemClass).toBe("StumpLatrineItem");
 
     const rebuilt = deserializeRoomInput(serialized);
 
@@ -51,5 +59,8 @@ describe("room worker serialization", () => {
     expect(rebuilt.allowElectricPower).toBe(false);
     expect(rebuilt.allowWater).toBe(false);
     expect([...(rebuilt.disabledFuelTags ?? [])]).toEqual(["Torch"]);
+    expect(rebuilt.economyEnabled).toBe(true);
+    expect(rebuilt.economyBudget).toBe(250);
+    expect(rebuilt.economyData?.currencies).toEqual(["Credits"]);
   });
 });

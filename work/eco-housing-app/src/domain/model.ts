@@ -1,7 +1,15 @@
 import { attachmentDirections, effectiveFloorArea, floorAreaWhenOnSurface, hasSurfaceTag, isPetalSurfaceOnly, itemFootprint, surfaceUnitsProvided, surfaceUnitsRequired } from "./placementRules";
-import type { EcoData, EcoModel, HousingItem, ItemOptimizationProfile, RoomCategory } from "./types";
+import type { ConstructionMaterialTier, EcoData, EcoModel, HousingItem, ItemOptimizationProfile, RoomCategory } from "./types";
 
 const EXCLUDED_ITEM_CLASSES = new Set(["EckoStatueItem"]);
+const VANILLA_CONSTRUCTION_MATERIALS: ConstructionMaterialTier[] = [
+  { tier: 0, itemClasses: ["DirtItem", "StoneItem", "LogItem"], source: "vanillaFallback" },
+  { tier: 1, itemClasses: ["HewnLogItem", "MortaredStoneItem"], source: "vanillaFallback" },
+  { tier: 2, itemClasses: ["HewnLogItem", "MortaredStoneItem", "BrickItem", "LumberItem"], source: "vanillaFallback" },
+  { tier: 3, itemClasses: ["LumberItem", "BrickItem", "GlassItem", "CorrugatedSteelItem"], source: "vanillaFallback" },
+  { tier: 4, itemClasses: ["ReinforcedConcreteItem", "CorrugatedSteelItem", "FramedGlassItem"], source: "vanillaFallback" },
+  { tier: 5, itemClasses: ["CompositeLumberItem", "ReinforcedConcreteItem", "FramedGlassItem"], source: "vanillaFallback" },
+];
 
 export function byName(a: { friendlyName?: string; name?: string }, b: { friendlyName?: string; name?: string }) {
   return (a.friendlyName ?? a.name ?? "").localeCompare(b.friendlyName ?? b.name ?? "");
@@ -18,6 +26,7 @@ export function buildModel(data: EcoData): EcoModel {
     ? data.roomCategories
     : [...new Set(data.housing.map((item) => item.category).filter(Boolean))].map((name) => ({ name, canBeRoomCategory: true }));
   const supportForAnyRoom = roomCategories.filter((room) => room.supportForAnyRoomType).map((room) => room.name);
+  const constructionMaterials = normalizeConstructionMaterials(data.constructionMaterials, data);
 
   for (const item of data.items ?? []) {
     if (item.worldObjectClass) itemByWorldObject.set(item.worldObjectClass, item.className);
@@ -96,6 +105,7 @@ export function buildModel(data: EcoData): EcoModel {
     housingItemsByCategory,
     baseHousingItemsByCategory,
     optimizationProfileByItemClass,
+    constructionMaterials,
     skills: [...data.skills].sort((a, b) => (a.tier ?? 99) - (b.tier ?? 99) || byName(a, b)),
     roomCategories,
     roomCategoryByName: new Map(roomCategories.map((room) => [room.name, room])),
@@ -122,6 +132,17 @@ function groupHousingItemsByCategory(items: HousingItem[]) {
   }
   for (const entries of byCategory.values()) entries.sort((a, b) => b.value - a.value || byName(a, b));
   return byCategory;
+}
+
+function normalizeConstructionMaterials(materials: ConstructionMaterialTier[] | undefined, data: EcoData): ConstructionMaterialTier[] {
+  const source = materials?.length ? materials : VANILLA_CONSTRUCTION_MATERIALS;
+  return source
+    .map((entry) => ({
+      ...entry,
+      itemClasses: [...new Set(entry.itemClasses)].filter((itemClass) => data.items.some((item) => item.className === itemClass) || data.recipes.some((recipe) => recipe.products?.some((product) => product.itemClass === itemClass))),
+    }))
+    .filter((entry) => Number.isFinite(entry.tier) && entry.itemClasses.length > 0)
+    .sort((a, b) => a.tier - b.tier);
 }
 
 function buildOptimizationProfile(item: HousingItem): ItemOptimizationProfile {

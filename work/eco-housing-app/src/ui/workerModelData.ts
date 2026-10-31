@@ -13,5 +13,6 @@ export function toEcoData(model: EcoModel): EcoData {
     worldObjects: model.worldObjects,
     occupancy: model.occupancy,
     housingEquivalenceGroups: model.housingEquivalenceGroups,
+    constructionMaterials: model.constructionMaterials,
   };
 }

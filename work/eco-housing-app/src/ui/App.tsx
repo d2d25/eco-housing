@@ -18,6 +18,10 @@ const APP_VERSION = "0.1.0-beta";
 const EXPORT_SCHEMA_VERSION = 1;
 const SUPPORTED_EXPORT_SCHEMA_VERSIONS = new Set([1]);
 
+function shouldAutoConnectCurrentServer() {
+  return typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/eco-housing");
+}
+
 export function App() {
   const [model, setModel] = useState<EcoModel | null>(null);
   const [runtimeData, setRuntimeData] = useState<EcoRuntimeData | null>(null);
@@ -32,12 +36,30 @@ export function App() {
   const t = useMemo(() => createTranslator(config.language), [config.language]);
 
   useEffect(() => {
-    loadVanillaRuntimeData()
+    const serverUrl = shouldAutoConnectCurrentServer() ? window.location.origin : "";
+    const loader = serverUrl ? loadServerRuntimeData(serverUrl) : loadVanillaRuntimeData();
+    loader
       .then((runtime) => {
         setRuntimeData(runtime);
         setModel(buildModel(runtime.ecoData));
+        if (runtime.source === "server") {
+          update({ dataSource: "server", serverUrl: runtime.serverUrl ?? serverUrl });
+        }
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) => {
+        if (!serverUrl) {
+          setError(err instanceof Error ? err.message : String(err));
+          return;
+        }
+
+        setServerError(err instanceof Error ? err.message : String(err));
+        loadVanillaRuntimeData()
+          .then((runtime) => {
+            setRuntimeData(runtime);
+            setModel(buildModel(runtime.ecoData));
+          })
+          .catch((fallbackErr: unknown) => setError(fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)));
+      });
   }, []);
 
   useEffect(() => saveConfig(config), [config]);
@@ -48,7 +70,11 @@ export function App() {
 
   const selectedSkills = useMemo(() => new Set(config.selectedSkills), [config.selectedSkills]);
   const disabledItems = useMemo(() => new Set(config.disabledItems), [config.disabledItems]);
-  const availableSkills = useMemo(() => (model ? model.skills.filter((skill) => skill.isSpecialty) : []), [model]);
+  const availableSkills = useMemo(() => {
+    if (!model) return [];
+    const specialties = model.skills.filter((skill) => skill.isSpecialty);
+    return specialties.length ? specialties : model.skills;
+  }, [model]);
   const availableHousingCount = useMemo(() => {
     if (!model) return 0;
     const resolver = createCraftResolver(model, selectedSkills);
@@ -157,6 +183,7 @@ export function App() {
             onOpenAllowed={() => setAllowedOpen(true)}
             onImportJson={importExportJson}
             costResolver={costResolver}
+            economyData={runtimeData?.economyData ?? null}
           />
         ) : config.activeView === "room" ? (
           <RoomPage
@@ -172,6 +199,7 @@ export function App() {
             onOpenAllowed={() => setAllowedOpen(true)}
             onImportJson={importExportJson}
             costResolver={costResolver}
+            economyData={runtimeData?.economyData ?? null}
           />
         ) : (
           <ObjectsPage model={model} t={t} language={config.language} config={config} update={update} selectedSkills={selectedSkills} />
@@ -289,12 +317,13 @@ function HousePage(props: {
   onOpenAllowed: () => void;
   onImportJson: (file: File) => void;
   costResolver: CostResolver | null;
+  economyData: EcoRuntimeData["economyData"];
 }) {
-  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems, costResolver } = props;
+  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems, costResolver, economyData } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const tiers = model.roomTiers;
   const fuelTags = availableFuelTags(model);
-  const optimizationState = useHouseOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems });
+  const optimizationState = useHouseOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems, economyData });
   const result = optimizationState.status === "ready" ? optimizationState.optimization : null;
 
   return (
@@ -351,6 +380,7 @@ function HousePage(props: {
               <input type="number" min={0} max={100} value={config.minXpEfficiencyPercent} onChange={(event) => update({ minXpEfficiencyPercent: clampPercent(Number.parseInt(event.target.value, 10) || 0) })} />
             </span>
           </section>
+          <EconomyControls t={t} config={config} update={update} economyData={economyData} />
           <section className="operational-options">
             <strong>{t("operationalOptions")}</strong>
             <div className="toggle-grid">
@@ -373,7 +403,7 @@ function HousePage(props: {
             )}
           </section>
         </section>
-        <HouseSummary t={t} status={optimizationState.status} result={result} />
+        <HouseSummary t={t} status={optimizationState.status} result={result} devMode={config.devMode} />
       </section>
 
       {optimizationState.status === "loading" && <OptimizationSpinner t={t} />}
@@ -410,13 +440,50 @@ function HousePage(props: {
   );
 }
 
-function HouseSummary({ t, status, result }: { t: Translator; status: "loading" | "ready" | "error"; result: HouseOptimizationResult | null }) {
+function HouseSummary({ t, status, result, devMode }: { t: Translator; status: "loading" | "ready" | "error"; result: HouseOptimizationResult | null; devMode: boolean }) {
   return (
-    <section className="house-summary">
-      <div className="summary-tile main"><span>{t("totalHouseScore")}</span><strong>{result ? result.score.toFixed(1) : status === "loading" ? "..." : "-"}</strong></div>
-      <div className="summary-tile"><span>{t("materialsUsed")}</span><strong>{result ? `${result.materials.used}/${result.materials.budget}` : "-"}</strong></div>
-      <div className="summary-tile"><span>{t("materialsRemaining")}</span><strong>{result ? result.materials.remaining : "-"}</strong></div>
-      <div className="summary-tile"><span>{t("sharedWallSavings")}</span><strong>{result ? result.materials.sharedSavings : "-"}</strong></div>
+    <>
+      <section className="house-summary">
+        <div className="summary-tile main"><span>{t("totalHouseScore")}</span><strong>{result ? result.score.toFixed(1) : status === "loading" ? "..." : "-"}</strong></div>
+        <div className="summary-tile"><span>{t("materialsUsed")}</span><strong>{result ? `${result.materials.used}/${result.materials.budget}` : "-"}</strong></div>
+        <div className="summary-tile"><span>{t("materialsRemaining")}</span><strong>{result ? result.materials.remaining : "-"}</strong></div>
+        <div className="summary-tile"><span>{t("sharedWallSavings")}</span><strong>{result ? result.materials.sharedSavings : "-"}</strong></div>
+        {result?.economy && (
+          <>
+            <div className="summary-tile"><span>{t("totalCost")}</span><strong>{result.economy.totalCost != null ? formatMoney(result.economy.totalCost, result.economy.currency) : "-"}</strong></div>
+            <div className="summary-tile"><span>{t("xpPerCredit")}</span><strong>{result.economy.xpPerCredit != null ? result.economy.xpPerCredit.toFixed(3) : "-"}</strong></div>
+          </>
+        )}
+      </section>
+      {result?.economy && <EconomyInsightsPanel t={t} economy={result.economy} />}
+      {devMode && result?.economy && <EconomyDebugPanel t={t} economy={result.economy} />}
+    </>
+  );
+}
+
+function EconomyControls({ t, config, update, economyData }: { t: Translator; config: AppConfig; update: (partial: Partial<AppConfig>) => void; economyData: EcoRuntimeData["economyData"] }) {
+  if (!economyData) return null;
+  return (
+    <section className="economy-options">
+      <label className="inline-check">
+        <input type="checkbox" checked={config.economyEnabled} onChange={(event) => update({ economyEnabled: event.target.checked })} />
+        {t("useServerEconomy")}
+      </label>
+      {config.economyEnabled && (
+        <div className="field-grid economy-grid">
+          <NumberField label={t("budget")} value={config.economyBudget} min={0} max={100000000} onChange={(economyBudget) => update({ economyBudget })} />
+          <label>{t("currency")}
+            <input value={config.economyCurrency} onChange={(event) => update({ economyCurrency: event.target.value })} placeholder={t("anyCurrency")} />
+          </label>
+          <label>{t("economyObjective")}
+            <select value={config.economyObjective} onChange={(event) => update({ economyObjective: event.target.value as AppConfig["economyObjective"] })}>
+              <option value="maxXpUnderBudget">{t("maxXpUnderBudget")}</option>
+              <option value="bestXpPerCredit">{t("bestXpPerCredit")}</option>
+              <option value="maxXp">{t("maxXp")}</option>
+            </select>
+          </label>
+        </div>
+      )}
     </section>
   );
 }
@@ -604,12 +671,13 @@ function RoomPage(props: {
   onOpenAllowed: () => void;
   onImportJson: (file: File) => void;
   costResolver: CostResolver | null;
+  economyData: EcoRuntimeData["economyData"];
 }) {
-  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems, costResolver } = props;
+  const { model, t, language, config, update, selectedSkills, disabledItems, ownedItems, costResolver, economyData } = props;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const playableRooms = model.roomCategories.filter((room) => room.canBeRoomCategory && !room.negatesValue && room.name !== "Cultural");
   const tiers = model.roomTiers;
-  const optimizationState = useRoomOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems });
+  const optimizationState = useRoomOptimizationWorker({ model, config, selectedSkills, disabledItems, ownedItems, economyData });
   const optimization = optimizationState.optimization;
   const usesMaterialTier = roomUsesMaterialTier(model, config.roomType);
   const usesRoomSize = config.roomType !== "Outdoor";
@@ -714,6 +782,7 @@ function RoomPage(props: {
               />
             </span>
           </section>
+          <EconomyControls t={t} config={config} update={update} economyData={economyData} />
           <section className="operational-options">
             <strong>{t("operationalOptions")}</strong>
             <div className="toggle-grid">
@@ -788,6 +857,81 @@ function RoomSummaryPanel({
       <div className="summary-tile">
         <span>{usesRoomSize ? t("roomSize") : t("outdoorNoSize")}</span>
         <strong>{usesRoomSize ? `${width}x${depth}x${height}` : "-"}</strong>
+      </div>
+      {optimization?.economy && (
+        <>
+          <div className="summary-tile">
+            <span>{t("totalCost")}</span>
+            <strong>{optimization.economy.totalCost != null ? formatMoney(optimization.economy.totalCost, optimization.economy.currency) : "-"}</strong>
+          </div>
+          <div className="summary-tile">
+            <span>{t("xpPerCredit")}</span>
+            <strong>{optimization.economy.xpPerCredit != null ? optimization.economy.xpPerCredit.toFixed(3) : "-"}</strong>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function EconomyInsightsPanel({ t, economy }: { t: Translator; economy: NonNullable<RoomOptimization["economy"]> }) {
+  const cheaperAlternatives = economy.analysis.cheaperAlternatives.slice(0, 3);
+  const marketGaps = economy.analysis.marketGaps.slice(0, 3);
+  const categories = economy.analysis.categories
+    .filter((entry) => entry.bestXpPerCredit || entry.cheapestAvailable || entry.strongestXp)
+    .slice(0, 3);
+
+  if (!cheaperAlternatives.length && !marketGaps.length && !categories.length && !economy.warnings.length) return null;
+
+  return (
+    <section className="economy-insights">
+      <div className="economy-insights-head">
+        <strong>{t("economyInsights")}</strong>
+        {economy.remainingBudget != null && <span>{t("remainingBudget")}: {formatMoney(economy.remainingBudget, economy.currency)}</span>}
+      </div>
+      <div className="economy-insight-grid">
+        {cheaperAlternatives.length > 0 && (
+          <div className="economy-insight-block">
+            <span>{t("cheaperAlternatives")}</span>
+            {cheaperAlternatives.map((entry) => (
+              <small key={`${entry.itemClass}-${entry.alternativeItemClass}`}>
+                <b>{displayClassName(entry.itemClass)}</b>
+                {` -> ${displayClassName(entry.alternativeItemClass)} (${t("savings")} ${formatMoney(entry.savings, entry.currency)})`}
+              </small>
+            ))}
+          </div>
+        )}
+        {marketGaps.length > 0 && (
+          <div className="economy-insight-block">
+            <span>{t("marketGaps")}</span>
+            {marketGaps.map((entry) => (
+              <small key={`${entry.itemClass}-${entry.reason}`}>
+                <b>{displayClassName(entry.itemClass)}</b>
+                {marketGapText(t, entry.reason)}
+                {entry.availableCurrencies?.length ? ` (${entry.availableCurrencies.join(", ")})` : ""}
+                {entry.canCraft ? `, ${t("craftable")}` : ""}
+              </small>
+            ))}
+          </div>
+        )}
+        {categories.length > 0 && (
+          <div className="economy-insight-block">
+            <span>{t("economyCategoryAnalysis")}</span>
+            {categories.map((entry) => (
+              <small key={entry.category}>
+                <b>{entry.category}</b>
+                {entry.bestXpPerCredit ? ` ${t("bestEconomyItem")}: ${displayClassName(entry.bestXpPerCredit.itemClass)} (${entry.bestXpPerCredit.xpPerCredit?.toFixed(3)} XP/credit)` : ""}
+                {!entry.bestXpPerCredit && entry.cheapestAvailable ? ` ${t("cheapestAvailableItem")}: ${displayClassName(entry.cheapestAvailable.itemClass)}` : ""}
+              </small>
+            ))}
+          </div>
+        )}
+        {economy.warnings.length > 0 && (
+          <div className="economy-insight-block warning">
+            <span>{t("warnings")}</span>
+            {economy.warnings.slice(0, 3).map((warning) => <small key={warning}>{warning}</small>)}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1090,6 +1234,7 @@ function RoomOptimizationResults({
 
   return (
     <>
+      {optimization.economy && <EconomyInsightsPanel t={t} economy={optimization.economy} />}
       {operational.hasNeeds && (
         <section className="operational-summary">
           <strong>{t("operationalNeeds")}</strong>
@@ -1116,6 +1261,7 @@ function RoomOptimizationResults({
             <Metric label={t("afterSupportCaps")} value={score.afterSupportCaps} delta={-score.supportCapLoss} />
             <Metric label={t("afterTier")} value={score.capped} delta={-score.capLoss} />
           </div>
+          {optimization.economy && <EconomyDebugPanel t={t} economy={optimization.economy} />}
         </section>
       )}
 
@@ -1142,6 +1288,138 @@ function OptimizationSpinner({ t }: { t: Translator }) {
 
 function OptimizationError({ t, message }: { t: Translator; message: string }) {
   return <section className="optimization-state error"><strong>{t("calculationError")}</strong><span>{message}</span></section>;
+}
+
+function EconomyDebugPanel({ t, economy }: { t: Translator; economy: NonNullable<RoomOptimization["economy"]> }) {
+  const rows = [
+    { label: t("bestEconomyItem"), item: economy.analysis.bestXpPerCredit },
+    { label: t("worstEconomyItem"), item: economy.analysis.worstXpPerCredit },
+    { label: t("strongestXpItem"), item: economy.analysis.strongestXp },
+  ].filter((row) => row.item);
+  const blocked = [...economy.analysis.unavailableItems, ...economy.analysis.stockLimitedItems]
+    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.itemClass === entry.itemClass) === index)
+    .slice(0, 6);
+  const rejected = economy.analysis.rejectedItems.slice(0, 8);
+  const categoryRows = economy.analysis.categories.slice(0, 8);
+  const cheaperAlternatives = economy.analysis.cheaperAlternatives.slice(0, 8);
+  const marketGaps = economy.analysis.marketGaps.slice(0, 8);
+  return (
+    <section className="economy-debug-panel">
+      <strong>{t("economyDebug")}</strong>
+      <div className="economy-debug-grid">
+        {rows.map((row) => row.item && (
+          <div key={row.label} className="economy-debug-row">
+            <span>{row.label}</span>
+            <strong>{displayClassName(row.item.itemClass)}</strong>
+            <small>{row.item.xp.toFixed(2)} XP | {row.item.totalCost != null ? formatMoney(row.item.totalCost, row.item.currency) : "-"} | {row.item.xpPerCredit != null ? `${row.item.xpPerCredit.toFixed(3)} XP/credit` : t("notPriced")}</small>
+          </div>
+        ))}
+      </div>
+      {blocked.length > 0 && (
+        <div className="economy-debug-blocked">
+          <span>{t("economyBlockedItems")}</span>
+          {blocked.map((entry) => <small key={entry.itemClass}>{displayClassName(entry.itemClass)} {entry.availableQuantity}/{entry.quantity}</small>)}
+        </div>
+      )}
+      {economy.stockOveruse.length > 0 && (
+        <div className="economy-debug-blocked">
+          <span>{t("economyGlobalStockOveruse")}</span>
+          {economy.stockOveruse.slice(0, 6).map((entry) => (
+            <small key={`${entry.itemClass}-${entry.currency}-${entry.storeName}-${entry.seller}-${entry.unitCost}`}>
+              {displayClassName(entry.itemClass)} {entry.availableQuantity}/{entry.quantity}
+              {entry.storeName ? ` | ${entry.storeName}` : ""}
+            </small>
+          ))}
+        </div>
+      )}
+      {economy.ownedOveruse.length > 0 && (
+        <div className="economy-debug-blocked">
+          <span>{t("economyOwnedOveruse")}</span>
+          {economy.ownedOveruse.slice(0, 6).map((entry) => (
+            <small key={entry.itemClass}>{displayClassName(entry.itemClass)} {entry.availableQuantity}/{entry.quantity}</small>
+          ))}
+        </div>
+      )}
+      {rejected.length > 0 && (
+        <div className="economy-debug-rejected">
+          <span>{t("economyRejectedItems")}</span>
+          {rejected.map((entry) => (
+            <small key={entry.itemClass}>
+              <b>{displayClassName(entry.itemClass)}</b>
+              {economyReasonText(t, entry.reason)}
+              {entry.availableCurrencies?.length ? ` | ${entry.availableCurrencies.join(", ")}` : ""}
+              {entry.totalCost != null ? ` | ${formatMoney(entry.totalCost, entry.currency)}` : ""}
+              {entry.xpPerCredit != null ? ` | ${entry.xpPerCredit.toFixed(3)} XP/credit` : ""}
+            </small>
+          ))}
+        </div>
+      )}
+      {cheaperAlternatives.length > 0 && (
+        <div className="economy-debug-rejected">
+          <span>{t("cheaperAlternatives")}</span>
+          {cheaperAlternatives.map((entry) => (
+            <small key={`${entry.itemClass}-${entry.alternativeItemClass}`}>
+              <b>{displayClassName(entry.itemClass)}</b>
+              {` -> ${displayClassName(entry.alternativeItemClass)} | ${t("savings")}: ${formatMoney(entry.savings, entry.currency)}`}
+            </small>
+          ))}
+        </div>
+      )}
+      {marketGaps.length > 0 && (
+        <div className="economy-debug-rejected">
+          <span>{t("marketGaps")}</span>
+          {marketGaps.map((entry) => (
+            <small key={`${entry.itemClass}-${entry.reason}`}>
+              <b>{displayClassName(entry.itemClass)}</b>
+              {marketGapText(t, entry.reason)}
+              {entry.availableCurrencies?.length ? ` | ${entry.availableCurrencies.join(", ")}` : ""}
+              {entry.canCraft ? ` | ${t("craftable")}` : ""}
+            </small>
+          ))}
+        </div>
+      )}
+      {categoryRows.length > 0 && (
+        <div className="economy-debug-rejected">
+          <span>{t("economyCategoryAnalysis")}</span>
+          {categoryRows.map((entry) => (
+            <small key={entry.category}>
+              <b>{entry.category}</b>
+              {entry.bestXpPerCredit ? ` | ${t("bestEconomyItem")}: ${displayClassName(entry.bestXpPerCredit.itemClass)} (${entry.bestXpPerCredit.xpPerCredit?.toFixed(3)} XP/credit)` : ""}
+              {entry.strongestXp ? ` | ${t("strongestXpItem")}: ${displayClassName(entry.strongestXp.itemClass)} (${entry.strongestXp.xp.toFixed(1)} XP)` : ""}
+              {entry.cheapestAvailable ? ` | ${t("cheapestAvailableItem")}: ${displayClassName(entry.cheapestAvailable.itemClass)} (${formatMoney(entry.cheapestAvailable.totalCost ?? 0, entry.cheapestAvailable.currency)})` : ""}
+              {entry.unavailableItems.length || entry.stockLimitedItems.length || entry.noPriceItems.length ? ` | ${t("economyBlockedItems")}: ${entry.unavailableItems.length + entry.stockLimitedItems.length + entry.noPriceItems.length}` : ""}
+            </small>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function displayClassName(itemClass: string) {
+  return itemClass
+    .replace(/Item$/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+}
+
+function economyReasonText(t: Translator, reason: NonNullable<RoomOptimization["economy"]>["analysis"]["rejectedItems"][number]["reason"]) {
+  switch (reason) {
+    case "unavailable": return t("economyReasonUnavailable");
+    case "otherCurrency": return t("economyReasonOtherCurrency");
+    case "stock": return t("economyReasonStock");
+    case "noPrice": return t("economyReasonNoPrice");
+    case "overBudget": return t("economyReasonOverBudget");
+    case "notSelected": return t("economyReasonNotSelected");
+  }
+}
+
+function marketGapText(t: Translator, reason: NonNullable<RoomOptimization["economy"]>["analysis"]["marketGaps"][number]["reason"]) {
+  switch (reason) {
+    case "noListing": return t("marketGapNoListing");
+    case "noPrice": return t("marketGapNoPrice");
+    case "unavailable": return t("marketGapUnavailable");
+    case "otherCurrency": return t("marketGapOtherCurrency");
+  }
 }
 
 function RoomItem({ t, language, model, summary, devMode, selectedSkills, costResolver }: { t: Translator; language: Language; model: EcoModel; summary: ReturnType<typeof summarizeEntries>[number]; devMode: boolean; selectedSkills: Set<SkillClass>; costResolver: CostResolver | null }) {
@@ -1230,6 +1508,19 @@ function giveCommand(item: HousingItem, quantity: number) {
 function formatMoney(value: number, currency: string | null | undefined) {
   const formatted = formatCompactNumber(value);
   return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function formatDataCacheState(state: string, t: Translator) {
+  const keyByState: Record<string, Parameters<Translator>[0]> = {
+    empty: "dataCacheEmpty",
+    building: "dataCacheBuilding",
+    warming: "dataCacheWarming",
+    enriching: "dataCacheEnriching",
+    ready: "dataCacheReady",
+    failed: "dataCacheFailed",
+  };
+  const key = keyByState[state];
+  return key ? t(key) : state;
 }
 
 async function copyText(value: string) {
@@ -1798,6 +2089,16 @@ function SettingsModal({
   onClose: () => void;
 }) {
   const economyCount = runtimeData?.economyData?.listings.length ?? 0;
+  const cacheState = runtimeData?.status?.dataCache?.state;
+  const cacheMessageKey: Parameters<Translator>[0] | null = cacheState === "warming" || cacheState === "building"
+    ? "dataCacheWarmingMessage"
+    : cacheState === "enriching"
+      ? "dataCacheEnrichingMessage"
+      : cacheState === "failed"
+        ? "dataCacheFailedMessage"
+        : null;
+  const cacheNotice = cacheState && cacheMessageKey ? { state: cacheState, messageKey: cacheMessageKey } : null;
+  const syncButtonLabel = serverLoading ? t("syncing") : runtimeData?.source === "server" ? t("resync") : t("connectSync");
   return (
     <Modal title={t("settings")} onClose={onClose}>
       <div className="settings-list">
@@ -1819,16 +2120,18 @@ function SettingsModal({
           </label>
           <div className="server-connect-row">
             <input value={config.serverUrl} onChange={(event) => update({ serverUrl: event.target.value })} placeholder="http://127.0.0.1:3001" />
-            <button type="button" disabled={serverLoading || !config.serverUrl.trim()} onClick={onConnectServer}>{serverLoading ? t("syncing") : t("connectSync")}</button>
+            <button type="button" disabled={serverLoading || !config.serverUrl.trim()} onClick={onConnectServer}>{syncButtonLabel}</button>
           </div>
           <div className={runtimeData?.source === "server" ? "server-status connected" : "server-status"}>
             <strong>{runtimeData?.source === "server" ? t("connected") : t("usingVanilla")}</strong>
             <span>{runtimeData?.status?.serverName ?? runtimeData?.serverUrl ?? t("vanillaBundled")}</span>
             <small>{t("lastSync")} {runtimeData ? new Date(runtimeData.loadedAt).toLocaleString() : "-"}</small>
             <small>{t("economyListings")} {economyCount}</small>
+            {runtimeData?.status?.dataCache && <small>{t("dataCache")} {formatDataCacheState(runtimeData.status.dataCache.state, t)}</small>}
             {runtimeData?.status?.ecoVersion && <small>Eco {runtimeData.status.ecoVersion}</small>}
             {runtimeData?.status?.exporterVersion && <small>Exporter {runtimeData.status.exporterVersion}</small>}
           </div>
+          {cacheNotice && <div className={`server-status cache-${cacheNotice.state}`}><strong>{t("dataCache")} {formatDataCacheState(cacheNotice.state, t)}</strong><span>{t(cacheNotice.messageKey)}</span></div>}
           {serverError && <div className="server-status error"><strong>{t("serverConnectionError")}</strong><span>{serverError}</span></div>}
           {runtimeData?.warnings?.length ? <div className="server-status warn"><strong>{t("warnings")}</strong><span>{runtimeData.warnings.slice(0, 4).join(" | ")}</span></div> : null}
           <div className="field-grid">

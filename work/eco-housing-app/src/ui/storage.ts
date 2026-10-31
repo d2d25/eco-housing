@@ -1,4 +1,4 @@
-import type { HouseMaxCopiesPerRoomType, ItemClass, SkillClass } from "../domain/types";
+import type { EconomyObjectiveKind, HouseMaxCopiesPerRoomType, ItemClass, SkillClass } from "../domain/types";
 import { isLanguage, type Language } from "./i18n";
 
 export type ActiveView = "house" | "room" | "objects";
@@ -36,6 +36,8 @@ export interface AppConfig {
   serverUrl: string;
   economyBudget: number;
   economyCurrency: string;
+  economyEnabled: boolean;
+  economyObjective: EconomyObjectiveKind;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -71,6 +73,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   serverUrl: "",
   economyBudget: 0,
   economyCurrency: "",
+  economyEnabled: false,
+  economyObjective: "maxXpUnderBudget",
 };
 
 const CONFIG_KEY = "ecoHousingReactConfig";
@@ -116,10 +120,16 @@ export function loadConfig(): AppConfig {
       serverUrl: typeof parsed.serverUrl === "string" ? parsed.serverUrl : DEFAULT_CONFIG.serverUrl,
       economyBudget: Number.isFinite(Number(parsed.economyBudget)) ? Math.max(0, Number(parsed.economyBudget)) : DEFAULT_CONFIG.economyBudget,
       economyCurrency: typeof parsed.economyCurrency === "string" ? parsed.economyCurrency : DEFAULT_CONFIG.economyCurrency,
+      economyEnabled: Boolean(parsed.economyEnabled),
+      economyObjective: normalizeEconomyObjective(parsed.economyObjective),
     };
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+function normalizeEconomyObjective(value: unknown): EconomyObjectiveKind {
+  return value === "maxXp" || value === "maxXpUnderBudget" || value === "bestXpPerCredit" ? value : DEFAULT_CONFIG.economyObjective;
 }
 
 function normalizePercent(value: unknown, fallback: number) {

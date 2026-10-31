@@ -1,4 +1,4 @@
-import type { EcoData, HouseInput, HouseMaxCopiesPerRoomType, HouseOptimizationResult, ItemClass, SkillClass } from "../domain/types";
+import type { EcoData, EcoEconomyData, HouseInput, HouseMaxCopiesPerRoomType, HouseOptimizationResult, ItemClass, SkillClass } from "../domain/types";
 
 export interface SerializedHouseInput {
   constructionTier: number;
@@ -17,6 +17,11 @@ export interface SerializedHouseInput {
   allowWater?: boolean;
   allowChimney?: boolean;
   disabledFuelTags?: string[];
+  economyEnabled?: boolean;
+  economyBudget?: number | null;
+  economyCurrency?: string | null;
+  economyObjective?: HouseInput["economyObjective"];
+  economyData?: EcoEconomyData | null;
 }
 
 export type HouseWorkerRequest =
@@ -51,6 +56,11 @@ export function serializeHouseInput(input: HouseInput): SerializedHouseInput {
     allowWater: input.allowWater,
     allowChimney: input.allowChimney,
     disabledFuelTags: [...(input.disabledFuelTags ?? [])],
+    economyEnabled: input.economyEnabled,
+    economyBudget: input.economyBudget,
+    economyCurrency: input.economyCurrency,
+    economyObjective: input.economyObjective,
+    economyData: input.economyData ?? null,
   };
 }
 
@@ -72,5 +82,10 @@ export function deserializeHouseInput(input: SerializedHouseInput): HouseInput {
     allowWater: input.allowWater,
     allowChimney: input.allowChimney,
     disabledFuelTags: new Set(input.disabledFuelTags ?? []),
+    economyEnabled: input.economyEnabled,
+    economyBudget: input.economyBudget,
+    economyCurrency: input.economyCurrency,
+    economyObjective: input.economyObjective,
+    economyData: input.economyData ?? null,
   };
 }

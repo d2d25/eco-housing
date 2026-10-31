@@ -18,7 +18,7 @@ export async function loadServerRuntimeData(serverUrl: string): Promise<EcoRunti
     ecoData,
     economyData,
     loadedAt: new Date().toISOString(),
-    warnings: [...(status.warnings ?? []), ...(economyData.warnings ?? [])],
+    warnings: [...(status.warnings ?? []), ...(ecoData.warnings ?? []), ...(economyData.warnings ?? [])],
   };
 }
 
@@ -26,7 +26,12 @@ export function normalizeServerUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) throw new Error("Server URL is required.");
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  return new URL(withProtocol).toString().replace(/\/+$/, "");
+  const url = new URL(withProtocol);
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  if (url.pathname.toLowerCase().endsWith(API_PREFIX)) {
+    url.pathname = url.pathname.slice(0, -API_PREFIX.length) || "/";
+  }
+  return url.toString().replace(/\/+$/, "");
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -39,6 +44,11 @@ function validateEcoData(data: EcoData) {
   if (!Array.isArray(data.housing)) throw new Error("Server /data response is missing housing.");
   if (!Array.isArray(data.items)) throw new Error("Server /data response is missing items.");
   if (!Array.isArray(data.recipes)) throw new Error("Server /data response is missing recipes.");
+  if (data.constructionMaterials != null && !Array.isArray(data.constructionMaterials)) throw new Error("Server /data response has invalid constructionMaterials.");
+  for (const entry of data.constructionMaterials ?? []) {
+    if (!Number.isFinite(entry.tier)) throw new Error("Server /data constructionMaterials entry is missing tier.");
+    if (!Array.isArray(entry.itemClasses)) throw new Error(`Server /data constructionMaterials T${entry.tier} is missing itemClasses.`);
+  }
 }
 
 function validateEconomyData(data: EcoEconomyData) {

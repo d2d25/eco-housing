@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EcoModel, HouseInput, HouseOptimizationResult, ItemClass, SkillClass } from "../domain/types";
+import type { EcoEconomyData, EcoModel, HouseInput, HouseOptimizationResult, ItemClass, SkillClass } from "../domain/types";
 import { serializeHouseInput, type HouseWorkerResponse } from "./houseWorkerTypes";
 import type { AppConfig } from "./storage";
 import { toEcoData } from "./workerModelData";
@@ -18,6 +18,7 @@ export function useHouseOptimizationWorker(args: {
   selectedSkills: Set<SkillClass>;
   disabledItems: Set<ItemClass>;
   ownedItems: Map<ItemClass, number>;
+  economyData?: EcoEconomyData | null;
 }): HouseOptimizationWorkerState {
   const workerRef = useRef<Worker | null>(null);
   const readyRef = useRef(false);
@@ -43,6 +44,11 @@ export function useHouseOptimizationWorker(args: {
     allowWater: args.config.allowWater,
     allowChimney: args.config.allowChimney,
     disabledFuelTags: new Set(args.config.disabledFuelTags),
+    economyEnabled: args.config.economyEnabled && Boolean(args.economyData),
+    economyBudget: args.config.economyBudget,
+    economyCurrency: args.config.economyCurrency || null,
+    economyObjective: args.config.economyObjective,
+    economyData: args.economyData ?? null,
   }), [
     args.config.houseConstructionTier,
     args.config.houseMaterialBudget,
@@ -56,6 +62,11 @@ export function useHouseOptimizationWorker(args: {
     args.config.allowWater,
     args.config.allowChimney,
     args.config.disabledFuelTags,
+    args.config.economyEnabled,
+    args.config.economyBudget,
+    args.config.economyCurrency,
+    args.config.economyObjective,
+    args.economyData,
     args.selectedSkills,
     args.ownedItems,
     args.disabledItems,
@@ -160,5 +171,11 @@ function houseWorkerCacheKey(input: HouseInput) {
     allowWater: input.allowWater ?? null,
     allowChimney: input.allowChimney ?? null,
     disabledFuelTags: [...(input.disabledFuelTags ?? new Set<string>())].sort(),
+    economyEnabled: input.economyEnabled ?? false,
+    economyBudget: input.economyBudget ?? null,
+    economyCurrency: input.economyCurrency ?? null,
+    economyObjective: input.economyObjective ?? null,
+    economyDataFetchedAt: input.economyData?.fetchedAt ?? null,
+    economyListings: input.economyData?.listings.length ?? 0,
   });
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { buildModel } from "../domain/model";
 import { clearHouseOptimizationCache, estimateHouseMaterials, optimizeHouse } from "../domain/houseOptimizer";
-import type { EcoData, HouseInput, HouseLayoutRoom } from "../domain/types";
+import type { EcoData, EcoEconomyData, HouseInput, HouseLayoutRoom } from "../domain/types";
 
 const data: EcoData = {
   housingConfig: { roomCategoryDiminishingReturnRate: 0.5 },
@@ -20,6 +20,7 @@ const data: EcoData = {
     { className: "BathItem", friendlyName: "Bath", worldObjectClass: "BathObject" },
     { className: "YardItem", friendlyName: "Yard", worldObjectClass: "YardObject" },
     { className: "ZeroItem", friendlyName: "Zero", worldObjectClass: "ZeroObject" },
+    { className: "HewnLogItem", friendlyName: "Hewn Log" },
   ],
   recipes: [
     { className: "BedRecipe", name: "Bed", products: [{ itemClass: "BedItem", quantity: 1 }], ingredients: [] },
@@ -57,6 +58,13 @@ const data: EcoData = {
 };
 
 const model = buildModel(data);
+const economy: EcoEconomyData = {
+  fetchedAt: "2026-01-01T00:00:00.000Z",
+  currencies: ["Credits"],
+  listings: [
+    { itemClass: "HewnLogItem", quantity: 500, price: 2, currency: "Credits", storeName: "Builder" },
+  ],
+};
 
 function baseInput(partial: Partial<HouseInput> = {}): HouseInput {
   return {
@@ -201,5 +209,115 @@ describe("house optimizer", () => {
 
     expect(cached.score).toBe(expectedScore);
     expect(cached.rooms.length).toBeGreaterThan(0);
+  });
+
+  test("includes construction material cost in house economy total", () => {
+    const result = optimizeHouse(model, baseInput({
+      economyEnabled: true,
+      economyData: economy,
+      economyBudget: 500,
+      economyCurrency: "Credits",
+      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+    }));
+
+    expect(result.materials.used).toBeGreaterThan(0);
+    expect(result.economy?.materialCost).toBe(result.materials.used * 2);
+    expect(result.economy?.totalCost).toBe(result.economy?.materialCost);
+    expect(result.economy?.objectCost).toBe(0);
+  });
+
+  test("uses live server currency for construction material pricing", () => {
+    const serverEconomy: EcoEconomyData = {
+      fetchedAt: "2026-06-15T16:22:42.575Z",
+      currencies: ["d2d25 Credit"],
+      listings: [{ itemClass: "HewnLogItem", quantity: 500, price: 1, currency: "d2d25 Credit" }],
+    };
+    const result = optimizeHouse(model, baseInput({
+      economyEnabled: true,
+      economyData: serverEconomy,
+      economyBudget: 500,
+      economyCurrency: "d2d25 Credit",
+      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+    }));
+
+    expect(result.materials.used).toBeGreaterThan(0);
+    expect(result.economy?.currency).toBe("d2d25 Credit");
+    expect(result.economy?.materialCost).toBe(result.materials.used);
+    expect(result.economy?.totalCost).toBeLessThanOrEqual(500);
+  });
+
+  test("uses server-provided construction materials before vanilla fallback", () => {
+    const serverModel = buildModel({
+      ...data,
+      items: [...data.items, { className: "ModdedBlockItem", friendlyName: "Modded Block" }],
+      constructionMaterials: [{ tier: 2, itemClasses: ["ModdedBlockItem"], source: "server" }],
+    });
+    const serverEconomy: EcoEconomyData = {
+      fetchedAt: economy.fetchedAt,
+      currencies: ["Credits"],
+      listings: [{ itemClass: "ModdedBlockItem", quantity: 500, price: 3, currency: "Credits", storeName: "Modded Builder" }],
+    };
+    const result = optimizeHouse(serverModel, baseInput({
+      economyEnabled: true,
+      economyData: serverEconomy,
+      economyBudget: 500,
+      economyCurrency: "Credits",
+      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+    }));
+
+    expect(result.materials.used).toBeGreaterThan(0);
+    expect(result.economy?.materialCost).toBe(result.materials.used * 3);
+    expect(result.economy?.purchaseList.some((entry) => entry.itemClass === "ModdedBlockItem")).toBe(true);
+  });
+
+  test("rejects house plans when construction material stock is insufficient", () => {
+    const scarceEconomy: EcoEconomyData = {
+      fetchedAt: economy.fetchedAt,
+      currencies: ["Credits"],
+      listings: [{ itemClass: "HewnLogItem", quantity: 1, price: 1, currency: "Credits", storeName: "Tiny Builder" }],
+    };
+    const result = optimizeHouse(model, baseInput({
+      economyEnabled: true,
+      economyData: scarceEconomy,
+      economyBudget: 500,
+      economyCurrency: "Credits",
+      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+    }));
+
+    expect(result.rooms).toHaveLength(0);
+    expect(result.score).toBe(0);
+    expect(result.economy?.stockBlocking.some((entry) => entry.itemClass === "HewnLogItem")).toBe(true);
+  });
+
+  test("chooses the cheapest fully available construction material for the house tier", () => {
+    const serverModel = buildModel({
+      ...data,
+      items: [
+        ...data.items,
+        { className: "ExpensiveBlockItem", friendlyName: "Expensive Block" },
+        { className: "CheapBlockItem", friendlyName: "Cheap Block" },
+      ],
+      constructionMaterials: [{ tier: 2, itemClasses: ["ExpensiveBlockItem", "CheapBlockItem"], source: "server" }],
+    });
+    const serverEconomy: EcoEconomyData = {
+      fetchedAt: economy.fetchedAt,
+      currencies: ["Credits"],
+      listings: [
+        { itemClass: "ExpensiveBlockItem", quantity: 500, price: 5, currency: "Credits", storeName: "Expensive Builder" },
+        { itemClass: "CheapBlockItem", quantity: 500, price: 1, currency: "Credits", storeName: "Cheap Builder" },
+      ],
+    };
+    const result = optimizeHouse(serverModel, baseInput({
+      economyEnabled: true,
+      economyData: serverEconomy,
+      economyBudget: 500,
+      economyCurrency: "Credits",
+      disabledItems: new Set(["CookItem", "BathItem", "YardItem"]),
+    }));
+
+    expect(result.materials.used).toBeGreaterThan(0);
+    expect(result.economy?.materialCost).toBe(result.materials.used);
+    expect(result.economy?.purchaseList.some((entry) => entry.itemClass === "CheapBlockItem")).toBe(true);
+    expect(result.economy?.purchaseList.some((entry) => entry.itemClass === "ExpensiveBlockItem")).toBe(false);
   });
 });

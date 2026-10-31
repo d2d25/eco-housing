@@ -21,6 +21,11 @@ describe("house worker input serialization", () => {
       allowWater: false,
       allowChimney: true,
       disabledFuelTags: new Set(["Wood"]),
+      economyEnabled: true,
+      economyBudget: 1000,
+      economyCurrency: "Credits",
+      economyObjective: "bestXpPerCredit",
+      economyData: { fetchedAt: "2026-01-01T00:00:00.000Z", currencies: ["Credits"], listings: [{ itemClass: "TableItem", quantity: 1, price: 10, currency: "Credits" }] },
     };
 
     const restored = deserializeHouseInput(serializeHouseInput(input));
@@ -33,5 +38,9 @@ describe("house worker input serialization", () => {
     expect(restored.ownedItems.get("TableItem")).toBe(2);
     expect(restored.disabledItems.has("LampItem")).toBe(true);
     expect(restored.disabledFuelTags?.has("Wood")).toBe(true);
+    expect(restored.economyEnabled).toBe(true);
+    expect(restored.economyBudget).toBe(1000);
+    expect(restored.economyObjective).toBe("bestXpPerCredit");
+    expect(restored.economyData?.listings[0]?.itemClass).toBe("TableItem");
   });
 });

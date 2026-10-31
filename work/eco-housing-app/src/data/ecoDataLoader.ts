@@ -19,6 +19,9 @@ export async function loadVanillaRuntimeData(): Promise<EcoRuntimeData> {
 }
 
 function readWarnings(data: EcoData) {
-  const warnings = data.meta?.warnings;
-  return Array.isArray(warnings) ? warnings.filter((entry): entry is string => typeof entry === "string") : [];
+  const metaWarnings = data.meta?.warnings;
+  return [
+    ...(data.warnings ?? []),
+    ...(Array.isArray(metaWarnings) ? metaWarnings.filter((entry): entry is string => typeof entry === "string") : []),
+  ];
 }

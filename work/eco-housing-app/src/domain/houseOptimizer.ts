@@ -1,6 +1,8 @@
 import { optimizeRoom } from "./roomOptimizer";
+import { compareEconomyTie, economyAccepts, economyScoreValue, summarizeItemEconomy, type EconomyPlanInput } from "./economyPlanner";
 import { scoreSummary } from "./roomScoring";
-import type { EcoModel, HouseCraftItem, HouseInput, HouseLayoutRoom, HouseMaterialSummary, HouseOptimizationResult, HouseRoomCopyScore, HouseRoomGroup, ItemClass, OptimizationEntry, OptimizationGroup, RoomConstraints, RoomInput, RoomOptimization, ResolvedRoomSize } from "./types";
+import { createCostResolver } from "./costResolver";
+import type { EcoModel, EconomyRejectedItem, EconomySummary, HouseCraftItem, HouseInput, HouseLayoutRoom, HouseMaterialSummary, HouseOptimizationResult, HouseRoomCopyScore, HouseRoomGroup, ItemClass, OptimizationEntry, OptimizationGroup, RoomConstraints, RoomInput, RoomOptimization, ResolvedRoomSize } from "./types";
 
 const AUTO_MAX_COPIES = 4;
 const SCORE_EPSILON = 0.01;
@@ -29,6 +31,7 @@ interface CountPlan {
   score: number;
   craftList: HouseCraftItem[];
   warnings: string[];
+  economy: EconomySummary | null;
 }
 
 interface RoomCandidateGroup {
@@ -42,7 +45,9 @@ export function optimizeHouse(model: EcoModel, input: HouseInput): HouseOptimiza
   if (cached) return cached;
   const candidates = buildRoomCandidates(model, input);
   const best = enumerateHousePlans(model, input, candidates);
-  const result = best ? countPlanToResult(input, best) : emptyHouseResult(input, candidates.length ? [] : ["No room can score with the current filters."]);
+  const result = best
+    ? countPlanToResult(input, best)
+    : emptyHouseResult(input, candidates.length ? [] : ["No room can score with the current filters."], emptyHouseEconomy(model, input, candidates));
   setCachedHouseOptimization(model, input, result);
   return result;
 }
@@ -242,6 +247,11 @@ function roomInputForHouse(input: HouseInput, roomType: string): RoomInput {
     allowWater: input.allowWater,
     allowChimney: input.allowChimney,
     disabledFuelTags: input.disabledFuelTags,
+    economyEnabled: input.economyEnabled,
+    economyBudget: input.economyBudget,
+    economyCurrency: input.economyCurrency,
+    economyObjective: input.economyObjective,
+    economyData: input.economyData,
   };
 }
 
@@ -403,14 +413,18 @@ function evaluateChoicePlan(model: EcoModel, input: HouseInput, allCandidates: R
   const cappedGroups = applyRatioRoomCaps(model, preliminaryGroups);
   const score = cappedGroups.reduce((total, group) => total + group.totalScore, 0);
   if (score <= SCORE_EPSILON) return null;
+  const craftList = buildCraftList(input, cappedGroups);
+  const economy = summarizeHouseEconomy(model, input, craftList, score, cappedGroups, materials);
+  if (!economyAccepts(economy)) return null;
 
   return {
     rooms: cappedGroups,
     layout,
     materials,
     score,
-    craftList: buildCraftList(input, cappedGroups),
+    craftList,
     warnings: buildWarnings(allCandidates, cappedGroups, materials),
+    economy,
   };
 }
 
@@ -556,7 +570,14 @@ function buildWarnings(candidates: RoomCandidate[], groups: HouseRoomGroup[], ma
 
 function isBetterPlan(plan: CountPlan, current: CountPlan | null) {
   if (!current) return true;
+  if (plan.economy?.objective === "bestXpPerCredit" || current.economy?.objective === "bestXpPerCredit") {
+    const scoreDelta = economyScoreValue(plan.economy, plan.score) - economyScoreValue(current.economy, current.score);
+    return scoreDelta > SCORE_EPSILON
+      || Math.abs(scoreDelta) <= SCORE_EPSILON && plan.score > current.score + SCORE_EPSILON
+      || Math.abs(scoreDelta) <= SCORE_EPSILON && Math.abs(plan.score - current.score) <= SCORE_EPSILON && compareEconomyTie(plan.economy, current.economy) < 0;
+  }
   return plan.score > current.score + SCORE_EPSILON
+    || Math.abs(plan.score - current.score) <= SCORE_EPSILON && compareEconomyTie(plan.economy, current.economy) < 0
     || Math.abs(plan.score - current.score) <= SCORE_EPSILON && plan.materials.used < current.materials.used
     || Math.abs(plan.score - current.score) <= SCORE_EPSILON && plan.materials.used === current.materials.used && totalRooms(plan) < totalRooms(current);
 }
@@ -565,7 +586,7 @@ function totalRooms(plan: CountPlan) {
   return plan.rooms.reduce((total, group) => total + group.quantity, 0);
 }
 
-function emptyHouseResult(input: HouseInput, warnings: string[] = []): HouseOptimizationResult {
+function emptyHouseResult(input: HouseInput, warnings: string[] = [], economy: EconomySummary | null = null): HouseOptimizationResult {
   return {
     score: 0,
     constructionTier: input.constructionTier,
@@ -574,6 +595,7 @@ function emptyHouseResult(input: HouseInput, warnings: string[] = []): HouseOpti
     layout: [],
     craftList: [],
     warnings,
+    economy,
   };
 }
 
@@ -586,6 +608,7 @@ function countPlanToResult(input: HouseInput, plan: CountPlan): HouseOptimizatio
     layout: plan.layout,
     craftList: plan.craftList,
     warnings: plan.warnings,
+    economy: plan.economy,
   };
 }
 
@@ -633,5 +656,125 @@ function houseOptimizationCacheKey(input: HouseInput) {
     allowWater: input.allowWater ?? null,
     allowChimney: input.allowChimney ?? null,
     disabledFuelTags: [...(input.disabledFuelTags ?? new Set<string>())].sort(),
+    economyEnabled: input.economyEnabled ?? false,
+    economyBudget: input.economyBudget ?? null,
+    economyCurrency: input.economyCurrency ?? null,
+    economyObjective: input.economyObjective ?? null,
+    economyData: input.economyData ? {
+      fetchedAt: input.economyData.fetchedAt,
+      currencies: [...input.economyData.currencies].sort(),
+      listings: input.economyData.listings.map((listing) => ({ itemClass: listing.itemClass, quantity: listing.quantity, price: listing.price, currency: listing.currency })).sort((a, b) => a.itemClass.localeCompare(b.itemClass) || a.price - b.price),
+    } : null,
   });
+}
+
+function summarizeHouseEconomy(model: EcoModel, input: HouseInput, craftList: HouseCraftItem[], score: number, rooms: HouseRoomGroup[], materials: HouseMaterialSummary) {
+  const itemCounts = new Map<ItemClass, number>();
+  for (const entry of craftList) itemCounts.set(entry.item.itemClass, entry.quantity);
+  const materialItemClass = selectConstructionMaterial(model, input, materials.used);
+  if (materialItemClass) itemCounts.set(materialItemClass, (itemCounts.get(materialItemClass) ?? 0) + materials.used);
+  const summary = summarizeItemEconomy(model, economyInputFromHouse(input), itemCounts, score);
+  if (!summary) return null;
+  const materialCost = materialItemClass ? summary.purchaseList.find((entry) => entry.itemClass === materialItemClass)?.totalCost ?? null : null;
+  const materialWarnings = materialItemClass || materials.used <= 0 ? [] : [`No construction material pricing candidate found for tier ${input.constructionTier}.`];
+  const withMaterials: EconomySummary = {
+    ...summary,
+    materialCost,
+    objectCost: materialCost != null && summary.objectCost != null ? summary.objectCost - materialCost : summary.objectCost,
+    warnings: [...summary.warnings, ...materialWarnings],
+  };
+  const roomRejected = collectRoomRejectedEconomyItems(rooms);
+  if (!roomRejected.length) return withMaterials;
+  const selected = new Set(withMaterials.purchaseList.map((entry) => entry.itemClass));
+  const existing = new Set(withMaterials.analysis.rejectedItems.map((entry) => `${entry.itemClass}:${entry.reason}`));
+  const mergedRejected = [...withMaterials.analysis.rejectedItems];
+  for (const rejected of roomRejected) {
+    const key = `${rejected.itemClass}:${rejected.reason}`;
+    if (selected.has(rejected.itemClass) || existing.has(key)) continue;
+    existing.add(key);
+    mergedRejected.push(rejected);
+  }
+  mergedRejected.sort((a, b) => rejectionRank(a) - rejectionRank(b) || b.xp - a.xp || a.itemClass.localeCompare(b.itemClass));
+  return {
+    ...withMaterials,
+    analysis: {
+      ...withMaterials.analysis,
+      rejectedItems: mergedRejected.slice(0, 80),
+    },
+  };
+}
+
+function emptyHouseEconomy(model: EcoModel, input: HouseInput, candidates: RoomCandidate[]) {
+  if (!input.economyEnabled || !input.economyData || !candidates.length) return null;
+  const smallestIndoorMaterialUse = Math.min(
+    ...candidates
+      .filter((candidate) => candidate.roomType !== "Outdoor")
+      .map(candidateMaterialCost)
+      .filter((count) => Number.isFinite(count) && count > 0),
+  );
+  if (!Number.isFinite(smallestIndoorMaterialUse)) return null;
+  const materials: HouseMaterialSummary = {
+    budget: input.materialBudget,
+    used: smallestIndoorMaterialUse,
+    remaining: input.materialBudget - smallestIndoorMaterialUse,
+    isolatedCost: smallestIndoorMaterialUse,
+    sharedSavings: 0,
+  };
+  return summarizeHouseEconomy(model, input, [], 0, [], materials);
+}
+
+function selectConstructionMaterial(model: EcoModel, input: HouseInput, quantity: number): ItemClass | null {
+  if (!input.economyEnabled || !input.economyData || quantity <= 0) return null;
+  const candidates = constructionMaterialCandidates(model, input.constructionTier);
+  if (!candidates.length) return null;
+  const resolver = createCostResolver({
+    model,
+    economyData: input.economyData,
+    selectedSkills: input.selectedSkills,
+    ownedItems: input.ownedItems,
+    currency: input.economyCurrency || null,
+  });
+  return candidates
+    .map((itemClass) => resolver.resolve(itemClass, quantity))
+    .sort((a, b) => (b.availableQuantity >= quantity ? 1 : 0) - (a.availableQuantity >= quantity ? 1 : 0) || (a.totalCost ?? Infinity) - (b.totalCost ?? Infinity) || a.itemClass.localeCompare(b.itemClass))[0]?.itemClass ?? null;
+}
+
+function constructionMaterialCandidates(model: EcoModel, tier: number): ItemClass[] {
+  const known = model.constructionMaterials?.find((entry) => entry.tier === tier)?.itemClasses ?? [];
+  const expanded = new Set<ItemClass>();
+  for (const itemClass of known) {
+    expanded.add(itemClass);
+    const item = model.itemByClass.get(itemClass);
+    for (const variant of item?.variantItemClasses ?? []) expanded.add(variant);
+    for (const equivalent of item?.equivalentItemClasses ?? []) expanded.add(equivalent);
+    for (const recipe of model.recipes ?? []) {
+      if (!recipe.variantBaseRecipeClass) continue;
+      const baseRecipe = model.recipes.find((candidate) => candidate.className === recipe.variantBaseRecipeClass);
+      const baseItemClass = baseRecipe?.products?.find((product) => product.itemClass)?.itemClass;
+      if (baseItemClass !== itemClass) continue;
+      const variantItemClass = recipe.products?.find((product) => product.itemClass)?.itemClass;
+      if (variantItemClass) expanded.add(variantItemClass);
+    }
+  }
+  return [...expanded].filter((itemClass) => model.recipesByProduct.has(itemClass) || model.itemByClass.has(itemClass)).sort();
+}
+
+function collectRoomRejectedEconomyItems(rooms: HouseRoomGroup[]): EconomyRejectedItem[] {
+  return rooms.flatMap((room) => room.optimization.economy?.analysis.rejectedItems ?? []);
+}
+
+function rejectionRank(item: EconomyRejectedItem) {
+  return { unavailable: 0, otherCurrency: 1, stock: 2, noPrice: 3, overBudget: 4, notSelected: 5 }[item.reason] ?? 99;
+}
+
+function economyInputFromHouse(input: HouseInput): EconomyPlanInput {
+  return {
+    enabled: input.economyEnabled,
+    economyData: input.economyData,
+    selectedSkills: input.selectedSkills,
+    ownedItems: input.ownedItems,
+    budget: input.economyBudget,
+    currency: input.economyCurrency,
+    objective: input.economyObjective,
+  };
 }

@@ -1,4 +1,4 @@
-import type { EcoData, ItemClass, RoomInput, RoomOptimization, SkillClass } from "../domain/types";
+import type { EcoData, EcoEconomyData, ItemClass, RoomInput, RoomOptimization, SkillClass } from "../domain/types";
 
 export interface SerializedRoomInput {
   roomType: string;
@@ -19,6 +19,11 @@ export interface SerializedRoomInput {
   allowWater?: boolean;
   allowChimney?: boolean;
   disabledFuelTags?: string[];
+  economyEnabled?: boolean;
+  economyBudget?: number | null;
+  economyCurrency?: string | null;
+  economyObjective?: RoomInput["economyObjective"];
+  economyData?: EcoEconomyData | null;
 }
 
 export interface RoomWorkerRequest {
@@ -50,6 +55,11 @@ export function serializeRoomInput(input: RoomInput): SerializedRoomInput {
     allowWater: input.allowWater,
     allowChimney: input.allowChimney,
     disabledFuelTags: [...(input.disabledFuelTags ?? [])],
+    economyEnabled: input.economyEnabled,
+    economyBudget: input.economyBudget,
+    economyCurrency: input.economyCurrency,
+    economyObjective: input.economyObjective,
+    economyData: input.economyData ?? null,
   };
 }
 
@@ -73,5 +83,10 @@ export function deserializeRoomInput(input: SerializedRoomInput): RoomInput {
     allowWater: input.allowWater,
     allowChimney: input.allowChimney,
     disabledFuelTags: new Set(input.disabledFuelTags ?? []),
+    economyEnabled: input.economyEnabled,
+    economyBudget: input.economyBudget,
+    economyCurrency: input.economyCurrency,
+    economyObjective: input.economyObjective,
+    economyData: input.economyData ?? null,
   };
 }
